@@ -1,6 +1,6 @@
 # Backend de loyalty-program
 
-Entorno de desarrollo configurado; sin servidor, endpoints ni lógica de aplicación. Arquitectura de monolito por capas. La entrada de contexto es [docs/index.md](docs/index.md); las [reglas de negocio](docs/business-rules.md) son la fuente de verdad del comportamiento.
+Backend implementado por módulos y verificado localmente: 210 pruebas correctas, checks y compilación satisfactorios. Estado verificable en [desarrollo por prioridades](docs/development-status.md). Arquitectura de monolito por capas. La entrada de contexto es [docs/index.md](docs/index.md); las [reglas de negocio](docs/business-rules.md) son la fuente de verdad del comportamiento.
 
 ## Preparación
 
@@ -32,7 +32,7 @@ El esquema reproduce `SistemaDeFidelizacion.json` (11 tablas, 16 relaciones), co
 ## Calidad
 
 ```bash
-npm run check             # Biome + TypeScript + pruebas de tooling
+npm run check             # Biome + TypeScript + tooling + unit
 npm run format            # corrige formato/imports
 npm run test:tooling      # esquema/configuración; no son tests de negocio
 npm run test:unit
@@ -42,7 +42,18 @@ npm run test:watch
 npm run test:coverage
 ```
 
-Unit, integración y E2E están configurados pero aún vacíos; ejecutar sus comandos devuelve error por ausencia de tests. No hay métricas funcionales ni scripts dev/start/build hasta autorizar código de aplicación. Integración y E2E futuros deben usar PostgreSQL aislado mediante `TEST_DATABASE_URL`; Vitest no carga automáticamente las credenciales de desarrollo.
+Hay 210 pruebas y la ejecución global pasa íntegramente. Integración/E2E usan PostgreSQL local aislado mediante `TEST_DATABASE_URL` (nombre `loyalty_test_*`, rol con CREATEDB); Vitest no carga `.env`. `npm run test:db` prepara un PostgreSQL 17 temporal mediante Docker y lo retira al terminar; el script fue validado de principio a fin.
+
+```bash
+npm run dev              # tsx watch; carga .env y valida configuración
+npm run build            # compilación TypeScript a dist/
+npm start                # ejecuta dist/src/main.js
+npm run test:db          # suites en contenedor PostgreSQL temporal
+```
+
+Además de `DATABASE_URL`, el servidor requiere `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (o `SUPABASE_ANON_KEY`) y `CARD_TOKEN_ENCRYPTION_KEY` (32 bytes en 64 caracteres hexadecimales). `PORT` por defecto 3000; `CORS_ORIGINS` lista orígenes explícitos separados por coma. La plantilla `.env.example` contiene marcadores, nunca credenciales reales. Guardar la clave de cifrado de forma estable y privada: se usa para recuperar tokens de tarjetas e invitaciones.
+
+API `/api/v1`; `/health`, `/ready` y `/openapi.json`. Antes de usar el backend con datos reales hay que configurar/verificar el proveedor externo y revisar/aplicar explícitamente las nuevas migraciones al destino autorizado. Esta sesión no las aplicó a Supabase.
 
 ## Agentes y skills
 
@@ -61,7 +72,7 @@ Leer [AGENTS.md](AGENTS.md) al inicio y actualizarlo al cierre. Seguir el [flujo
 - [Vitest](https://vitest.dev/guide/) y [proyectos de pruebas](https://vitest.dev/config/projects)
 - [Skills en Codex](https://learn.chatgpt.com/docs/build-skills)
 
-Plan de implementación documentado: [BACKEND-001](docs/specs/BACKEND-001-plan-de-negocio.md), con registro por QR mediante correo/contraseña o Google OAuth usando Supabase Auth. Reglas y decisiones confirmadas: [reglas de negocio](docs/business-rules.md). El plan aún no está implementado y no cambia los comandos de preparación. Evidencia y limitaciones: [AGENTS.md](AGENTS.md).
+Plan de implementación documentado: [BACKEND-001](docs/specs/BACKEND-001-plan-de-negocio.md), con registro por QR mediante correo/contraseña o Google OAuth usando Supabase Auth. Reglas y decisiones confirmadas: [reglas de negocio](docs/business-rules.md). La implementación está verificada localmente; consultar los límites externos y operativos. Evidencia y limitaciones: [AGENTS.md](AGENTS.md).
 
 ## Mantenimiento de dependencias
 

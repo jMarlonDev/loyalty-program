@@ -1,10 +1,10 @@
 # BACKEND-001 — Plan del backend con registro por QR, correo y Google
 
-Estado: aceptada para planificación y publicación documental; no implementada. Fecha: 2026-10-18.
+Estado: implementación local de módulos y API; consultar development-status.md para validación y límites externos. Fecha: 2026-10-18.
 
 ## Problema y alcance
 
-Desarrollar en una etapa posterior la primera versión funcional del backend de fidelización con Hono, Drizzle/PostgreSQL y Vitest. Hoy existen esquema y herramientas; no hay servidor, endpoints ni pruebas funcionales. Este documento guarda el plan acordado y sus valores de diseño; no constituye evidencia de implementación ni autorización para migrar Supabase.
+Primera versión del backend de fidelización con Hono, Drizzle/PostgreSQL y Vitest. El plan se documentó inicialmente antes del servidor y de las pruebas funcionales; la solicitud posterior autorizó desarrollar los módulos. Este documento guarda el plan acordado y sus valores de diseño; no constituye evidencia de implementación ni autorización para migrar Supabase.
 
 El QR del programa permitirá al cliente registrarse manualmente con correo y contraseña o continuar con su cuenta de Google. Ambos métodos usarán Supabase Auth y conducirán al mismo flujo de inscripción, membresía y tarjeta.
 
@@ -135,7 +135,7 @@ Respuestas `{ data }`; listas `{ data, next_cursor }`; errores `{ error: { code,
 
 ## Criterios de aceptación
 
-Los siguientes criterios son objetivos futuros; ninguno tiene evidencia RED/GREEN todavía.
+Los siguientes criterios gobiernan la implementación. Las specs CORE, IDENTITY, STAFF, PROGRAMS, LOYALTY y OPS y el estado de desarrollo registran la evidencia actual; el proveedor real y la integración externa siguen pendientes.
 
 - AC-001 — Dado un QR válido, cuando el cliente completa registro manual y verifica su correo, entonces obtiene perfil y una sola membresía/tarjeta del programa seleccionado.
 - AC-002 — Dado ese QR, cuando el cliente continúa con Google y completa su perfil, entonces obtiene el mismo resultado sin exigir contraseña.
@@ -156,7 +156,7 @@ Los siguientes criterios son objetivos futuros; ninguno tiene evidencia RED/GREE
 
 ## Trazabilidad y validación
 
-Los archivos son destinos propuestos para futuras pruebas; hoy no existen. Evidencia RED/GREEN pendiente en todos los casos. Las specs de módulo ampliarán esta matriz sin sustituir estos criterios.
+Esta matriz conserva los destinos propuestos al planificar. Las specs de módulo registran los archivos efectivamente implementados y su evidencia; consultar development-status.md para el resultado agregado.
 
 | Reglas | Criterios | Nivel y archivo/prueba prevista |
 | --- | --- | --- |
@@ -185,5 +185,5 @@ Las decisiones de producto confirmadas están en BR-001 a BR-021. Se conservan e
 - Sin ajustes manuales de saldo, caducidad, subida de archivos, envío propio de invitaciones por correo, fusión de cuentas de correos diferentes, administración global de plataforma ni analítica avanzada.
 - Configurar Google requiere cliente OAuth, secreto y URLs del entorno; se documenta su provisión sin incluir valores secretos. La pantalla de consentimiento y disponibilidad del proveedor deben verificarse antes de habilitarlo al público.
 - Frontend reservado: documentar integración y validar con cliente de prueba, sin implementar pantallas de producto en esta etapa.
-- Pendiente derivar specs detalladas por módulo y obtener autorización de implementación. No se modifican esquema, aplicación ni Supabase al guardar este plan.
+- Specs e implementación local autorizadas posteriormente. CI, ejemplos completos y verificación externa siguen pendientes; aplicación remota de migraciones exige autorización del destino.
 - Mantener README/AGENTS con avances reales, preservando cambios del usuario. Publicar este documento no significa que sus funcionalidades estén implementadas.

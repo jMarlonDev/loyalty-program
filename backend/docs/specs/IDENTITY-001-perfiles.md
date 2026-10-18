@@ -43,4 +43,4 @@ Persistencia: `users.id` equivale al UUID verificado. Alta transaccional con `ON
 
 ## Preguntas y riesgos
 
-Configuración Google, cliente OAuth, callbacks y verificación real del proveedor dependen del entorno y no están probados por dobles. `/join/:publicCode` y `/auth/callback` pertenecen al frontend reservado: tras autenticar, el cliente conserva el código público, completa POST /profiles y posteriormente usa la inscripción (pendiente). No afirmar membresías, tarjetas o autorización de personal implementadas por esta entrega.
+Configuración Google, cliente OAuth, callbacks y verificación real del proveedor dependen del entorno y no están probados por dobles. `/join/:publicCode` y `/auth/callback` pertenecen al frontend reservado: tras autenticar, el cliente conserva el código público, completa POST /profiles y posteriormente usa la inscripción implementada por PROGRAMS-001. Membresías, tarjetas y personal se documentan en sus respectivas specs.

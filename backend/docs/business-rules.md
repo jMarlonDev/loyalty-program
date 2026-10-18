@@ -35,6 +35,6 @@ Estas decisiones amplían las reglas anteriores. BR-010 precisa la asignación d
 
 ## Especificación y valores de diseño
 
-El [plan BACKEND-001](specs/BACKEND-001-plan-de-negocio.md) concreta orden, contratos, atomicidad, pruebas y valores por defecto. Las respuestas explícitas del usuario se registran arriba; los valores de diseño del plan se distinguen de esas respuestas. La autorización actual comprende guardar y publicar documentación, no implementar la aplicación ni cambiar Supabase.
+El [plan BACKEND-001](specs/BACKEND-001-plan-de-negocio.md) concreta orden, contratos, atomicidad, pruebas y valores por defecto. Las respuestas explícitas del usuario se registran arriba; los valores de diseño del plan se distinguen de esas respuestas. La solicitud vigente del 2026-10-18 autoriza desarrollo por tareas delegadas, TDD y commits. No autoriza cambios remotos en Supabase.
 
 Antes de implementar cada módulo se derivará su spec con contratos completos y trazabilidad BR → AC → pruebas. La configuración OAuth requiere credenciales y URLs del entorno, que no se incluyen en documentación. Cambios futuros de reglas deben actualizar primero este documento y la spec afectada.

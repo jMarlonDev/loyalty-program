@@ -2,7 +2,7 @@
 
 ## Alcance autorizado
 
-Leer este archivo y `../AGENTS.md` al iniciar cada sesión. La petición del 2026-10-18 autoriza configurar backend, instalar dependencias y preparar esquema/migraciones y herramientas. No autoriza implementar servidor, endpoints ni reglas de aplicación todavía. Frontend fuera de alcance.
+Leer este archivo y `../AGENTS.md` al iniciar cada sesión. La solicitud vigente del 2026-10-18 autoriza desarrollar el backend siguiendo BACKEND-001, delegar tareas pequeñas a subagentes, aplicar TDD, crear commits y actualizar documentación. Sustituye el límite anterior de solo preparación. Frontend fuera de alcance; los cambios remotos de Supabase requieren autorización específica del destino.
 
 ## Contexto mínimo y fuente de verdad
 
@@ -49,7 +49,7 @@ Actualizar SIEMPRE este AGENTS.md con fecha, cambios reales, comprobaciones/resu
 
 ## Limitaciones y próximos pasos
 
-No hay funcionalidades, autenticación, servidor, build de aplicación ni pruebas funcionales unitarias/integración/E2E. La validación de migración es una comprobación de infraestructura, no un flujo E2E del producto. La base Supabase del .env fue migrada posteriormente por autorización explícita; ver sección de aplicación a Supabase.
+Hay servidor, módulos, build y pruebas funcionales. El resultado actual se registra al final de este archivo y en docs/development-status.md; las secciones anteriores conservan historial. La base Supabase del .env fue migrada posteriormente por autorización explícita; ver sección de aplicación a Supabase.
 
 Las decisiones de identidad, canje y confirmación se resolvieron durante la planificación posterior y están en docs/business-rules.md. El plan BACKEND-001 ordena su desarrollo; derivar la primera spec de módulo antes de implementar con RED/GREEN/refactor cuando se autorice. El esquema por sí solo no impone permisos ni consistencia entre restaurantes. Mantener AGENTS actualizado en cada sesión.
 
@@ -119,3 +119,34 @@ Las decisiones de identidad, canje y confirmación se resolvieron durante la pla
 - Commit documental creado. Push HTTPS rechazado por ausencia de credenciales en esta sesión: could not read Username for https://github.com. gh no está instalado y Git no tiene credential.helper configurado; no se imprimieron secretos.
 - Comprobación SSH no interactiva también rechazada con Permission denied (publickey). No se cambió el remoto ni la configuración de autenticación. El rechazo fue de GitHub/autenticación, no de la revisión automática de permisos.
 - Se incorpora este resultado al mismo commit local antes de publicarlo; consultar git log -1 para el identificador final. Pendiente git push -u origin main desde la terminal donde el usuario ya pudo autenticarse. Plan y documentación quedan guardados; origin/main aún no contiene este commit.
+
+
+### Desarrollo delegado y resumen solicitado — 2026-10-18
+
+- Usuario autorizó todas las fases de BACKEND-001, subagentes, TDD, documentación y commits; posteriormente solicitó resumen completo y commits propuestos. Tres subagentes implementaron base/STAFF, identidad/programas y harness/esquema/fidelización; el agente principal compuso HTTP, E2E, transacciones, configuración, límites y RLS.
+- Código local: servidor Hono, Supabase Auth verificado, perfiles, restaurantes/sucursales/personal/invitaciones, programas/inscripción/tarjetas/QR cifrado, compras/sellos/premios/reversión, consentimiento y cierre lógico. OpenAPI describe 39 operaciones. Frontend reservado.
+- Esquema ampliado a 16 tablas, migraciones nuevas 0001 y 0002, RLS sin políticas cliente y revocación de acceso directo. Se conserva 0000. PostgreSQL17 temporal exclusivo para tests, sin aplicar cambios a Supabase ni tocar .env.
+- Verificación global final: npm test con TEST_DATABASE_URL aislada: 210 pruebas, 208 pasan y 2 fallan (auditoría de programas y rechazo de contabilidad histórica incompatible). Cinco E2E pasan, incluido ciclo completo por HTTP real. Dobles de identidad no demuestran Google/correo reales.
+- npm run check falla en Biome (siete diagnósticos de formato/imports); typecheck falla por cinco argumentos extra en la prueba de auditoría cuyo repositorio está incompleto. db:check y git diff --check satisfactorios. No se ejecutó cobertura. Specs conservan RED/GREEN por módulo; el resultado agregado actual prevalece sobre cifras previas.
+- Revisión de subagentes interrumpida por límite de uso. Auditoría de programas, protección de datos históricos, CI, ejemplos API y validación externa Google/correo pendientes. No presentar el plan completo ni producción como terminados.
+- HEAD observado 3c3793f (chore: file deleted), commit externo que elimina el JSON original; se preservó. Tooling usa snapshot0000 si no existe JSON. No se creó commit ni push de este desarrollo. Agrupación propuesta y límites en docs/development-status.md.
+- README e índice actualizados con comandos/configuración reales y estado pendiente. Próximo paso: completar los dos ciclos RED pendientes, formato/tipos, comprobación global/build y preparar commits revisables por módulo; aplicar migraciones remotas solo con autorización específica.
+
+- Comprobación adicional al preparar el resumen: `npm run build` satisfactorio (excluye tests); no contradice el fallo de typecheck en pruebas. Contenedor temporal `loyalty-test-harness-20261018` detenido al terminar las comprobaciones. AGENTS/README del directorio padre actualizados; git diff --check satisfactorio.
+
+
+### Corrección final y publicación autorizada — 2026-10-18
+
+- Usuario autorizó todos los commits y push al repositorio, sin confirmaciones adicionales. Fetch satisfactorio; main y origin/main partían de 3c3793f. Se conservó la eliminación externa del JSON.
+- Completados auditoría de programas con request_id HTTP, rechazo de estados array y migración nueva 0003 para contabilidad histórica incompatible. No se reescribió 0000/0001/0002. Pruebas RED anteriores ahora GREEN; se resolvieron tipos y formato.
+- `npm run test:db` pasó de principio a fin: 210 pruebas en 25 archivos (6 tooling,149 unit,50 integration,5 e2e), PostgreSQL17 real temporal y contenedor retirado. Check, build, db:check, generate sin cambios y diff --check satisfactorios.
+- Incidencia de disco lleno resuelta retirando solo caché descargable npm _cacache, aproximadamente 3,7GB; código, credenciales y node_modules preservados. Biome excluye artefactos dist/coverage. Script temporal tolera contenedor ya eliminado por Docker.
+- Revisión de 114 candidatos sin coincidencias con secretos locales; .env, dist y node_modules excluidos de Git. Sin migraciones remotas, cambios de frontend ni credenciales. CI, ejemplos completos y Google/correo real siguen pendientes; no se presenta producción como terminada.
+- Serie de commits Conventional Commits preparada por módulos; identificadores y resultado de publicación se verifican mediante Git al cierre. Specs, workflow, arquitectura, plan, índice y README actualizados con evidencia vigente.
+
+
+### Resultado de commits y publicación — 2026-10-18
+
+- Creados commits funcionales 7849d8c (DB),149b912 (harness),9abf88c (core),f0cfcd7 (identidad),e434d66 (personal),d3c16bc (programas),7df518a (fidelización),dc32092 (API). Commit documental de cierre: consultar git log -1 para su hash final.
+- Push a origin/main rechazado: HTTPS no tiene credenciales disponibles (`could not read Username`); alternativa SSH rechazada (`Permission denied (publickey)`). gh no está instalado. No se cambió remoto ni se registraron secretos. Es un bloqueo de autenticación GitHub, no de permisos del directorio ni de revisión automática.
+- Pendiente publicar la serie desde una sesión autenticada: git push origin main. Código verificado con 210/210 pruebas, build y checks; sin aplicación de migraciones remotas. La documentación y todos los cambios se incluyen en los commits locales autorizados.

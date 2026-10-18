@@ -4,7 +4,7 @@ Sistema de fidelización para restaurantes basado en tarjetas digitales. Los pro
 
 ## Estado
 
-Repositorio sin código de aplicación. `frontend/` sigue reservado; `backend/` tiene Hono, Drizzle/PostgreSQL, Vitest y herramientas instaladas. Autenticación y despliegue pendientes. Ver [preparación del backend](backend/README.md) y [contexto de negocio](backend/docs/index.md).
+`frontend/` sigue reservado. `backend/` tiene API Hono, identidad Supabase, módulos de fidelización y pruebas con PostgreSQL aislado. Implementación verificada localmente: 210 de 210 pruebas pasan; checks y compilación satisfactorios. Configuración externa de Google y despliegue pendientes. Ver [preparación del backend](backend/README.md) y [contexto de negocio](backend/docs/index.md).
 
 ## Entorno de desarrollo
 
@@ -43,7 +43,7 @@ npm run generate
 npm run db:check
 ```
 
-No hay servidor ni pruebas funcionales implementadas. `check` verifica herramientas y esquema; `generate` produce SQL sin conectarse. `npm run migrate` aplica SQL a la base configurada en `backend/.env`; consultar antes el README del backend.
+Hay servidor y pruebas funcionales. `check` verifica formato, tipos, tooling y unit; `generate` produce SQL sin conectarse. `npm run migrate` aplica SQL a la base configurada en `backend/.env`; consultar antes el README del backend.
 
 ## Configuración del repositorio
 
@@ -58,4 +58,4 @@ Los commits siguen [Conventional Commits 1.0.0](https://www.conventionalcommits.
 
 ## Próximos pasos
 
-Resolver las decisiones pendientes en [reglas de negocio](backend/docs/business-rules.md) y crear la primera spec funcional antes de implementar con TDD. Consultar `backend/AGENTS.md` para estado y verificaciones. Frontend y despliegue siguen pendientes.
+Publicar los commits desde una sesión GitHub autenticada y completar las integraciones externas descritas en [estado de desarrollo](backend/docs/development-status.md). Consultar `backend/AGENTS.md` para estado y verificaciones. Frontend y despliegue siguen pendientes.

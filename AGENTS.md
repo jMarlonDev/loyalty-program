@@ -4,14 +4,14 @@
 
 `loyalty-program` es un sistema de fidelización para restaurantes. Los restaurantes podrán definir programas por compras; los clientes acumularán sellos en una tarjeta digital y obtendrán un premio al completar la meta.
 
-La etapa actual comprende preparación del entorno, documentación y Git. El usuario autorizó el 2026-10-18 instalar y configurar el backend con Hono, Drizzle/PostgreSQL y Vitest, incluyendo esquema y comandos de migración. No implementar servidor, endpoints ni lógica de aplicación todavía. Frontend continúa reservado.
+La solicitud vigente del 2026-10-18 autoriza desarrollar todas las fases del backend con subagentes, TDD, documentación y commits. La implementación está en revisión final; consultar backend/docs/development-status.md. Frontend continúa reservado y cambios remotos de Supabase requieren autorización específica.
 
 ## Entorno y estructura
 
 - Base local: Node.js 24.18.1 y npm 12.1.0; versiones declaradas en `.nvmrc` y `package.json`.
-- `frontend/`: reservado. `backend/`: entorno y esquema configurados, sin funcionalidades; leer `backend/AGENTS.md` y `backend/docs/index.md`.
+- `frontend/`: reservado. `backend/`: implementación funcional en revisión; leer `backend/AGENTS.md` y `backend/docs/index.md`.
 - `README.md`: preparación del entorno, verificaciones y decisiones pendientes.
-- Sin servidor ni compilación de aplicación. Backend tiene esquema Drizzle y Vitest configurados; cuatro pruebas de tooling, suites funcionales aún vacías. Migración inicial aplicada y verificada en Supabase por autorización explícita del usuario el 2026-10-18.
+- Backend tiene servidor, API y pruebas funcionales. Última verificación: 210/210 pruebas correctas, checks y build satisfactorios. Solo la migración inicial está aplicada a Supabase; 0001/0002/0003 se probaron localmente.
 - No versionar credenciales, archivos `.env`, dependencias ni artefactos generados.
 
 ## Flujo de trabajo
@@ -70,3 +70,15 @@ Commit local creado; consultar git log -1. Push HTTPS rechazado por falta de cre
 - Plan y documentación guardados en un commit local; consultar git log -1 para el identificador final.
 - Push HTTPS rechazado por falta de credenciales en esta sesión; comprobación SSH rechazada por clave pública no aceptada. Sin cambios en remoto o autenticación, sin secretos expuestos.
 - Pendiente publicar con git push -u origin main desde la terminal autenticada del usuario. Este resultado se incluye en el mismo commit documental; las verificaciones del plan permanecen satisfactorias.
+
+
+### Desarrollo delegado y resumen — 2026-10-18
+
+Implementados módulos de identidad, restaurantes/personal, programas/tarjetas y fidelización, con servidor, OpenAPI y tests. Verificación global: 208 de 210 pruebas pasan, cinco E2E correctos; quedan auditoría de programas y rechazo de contabilidad histórica incompatible, además de formato/tipos. Sin nuevos commits ni push; propuestas en backend/docs/development-status.md. Sin cambios remotos en Supabase/frontend/credenciales. La revisión de subagentes se interrumpió por límite de uso; CI, ejemplos y Google real siguen pendientes. Detalles/evidencia y próximos pasos en backend/AGENTS.md.
+
+
+### Verificación completada y commits autorizados — 2026-10-18
+
+- Cerrados fallos de auditoría y contabilidad histórica, tipos y formato. 210/210 pruebas pasan con PostgreSQL17 temporal; check/build/db:check/generate sin cambios/diff --check satisfactorios. Caché descargable npm retirada para resolver disco lleno; código y dependencias instaladas preservados.
+- Ocho commits funcionales creados (7849d8c a dc32092), más cierre documental identificable en git log. Usuario autorizó commit y push; HTTPS rechazó ausencia de credenciales y SSH rechazó la clave pública. No hubo publicación ni cambios de autenticación; no fue rechazo de permisos del entorno.
+- Pendiente git push origin main desde sesión GitHub autenticada. Sin cambios remotos Supabase/frontend/credenciales. CI, ejemplos, Google real y despliegue pendientes; detalle en backend/docs/development-status.md y backend/AGENTS.md.
