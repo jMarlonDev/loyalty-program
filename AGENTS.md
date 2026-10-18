@@ -55,3 +55,18 @@ Usuario solicitó commit y push a origin (https://github.com/jMarlonDev/loyalty-
 ### Publicación pendiente por autenticación — 2026-10-18
 
 Commit local creado; consultar git log -1. Push HTTPS rechazado por falta de credenciales y SSH por clave pública no aceptada. No se publicó en origin. Pendiente autenticación de GitHub en el equipo y reintentar git push -u origin main; configuración verificada y sin secretos versionados.
+
+
+### Plan de negocio documentado — 2026-10-18
+
+- Usuario autorizó guardar el plan, actualizar documentación, crear commit y publicar en main, incluido acceso al directorio padre.
+- Plan completo en backend/docs/specs/BACKEND-001-plan-de-negocio.md: registro por QR con correo/contraseña o Google OAuth mediante Supabase Auth, fases de negocio, contratos previstos y aceptación. Reglas canónicas e índice actualizados; no hay implementación funcional.
+- Fetch de origin satisfactorio: main y origin/main coincidían en b1d0000 antes de este commit. La publicación anterior fue completada por el usuario; las incidencias previas de autenticación se conservan como historial.
+- Verificaciones: npm run check satisfactorio (Biome, TypeScript y 4 tests de tooling), enlaces documentales, 21 BR y 16 AC, y git diff --check. Sin pruebas funcionales, cambios de esquema, configuración Google o modificaciones de Supabase.
+- Próximo paso: primera spec de módulo y TDD cuando se autorice implementar. La publicación del nuevo commit se verificará mediante Git y se informará al cierre; no se anticipa aquí su resultado.
+
+### Publicación del plan pendiente de autenticación — 2026-10-18
+
+- Plan y documentación guardados en un commit local; consultar git log -1 para el identificador final.
+- Push HTTPS rechazado por falta de credenciales en esta sesión; comprobación SSH rechazada por clave pública no aceptada. Sin cambios en remoto o autenticación, sin secretos expuestos.
+- Pendiente publicar con git push -u origin main desde la terminal autenticada del usuario. Este resultado se incluye en el mismo commit documental; las verificaciones del plan permanecen satisfactorias.

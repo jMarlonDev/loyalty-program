@@ -51,7 +51,7 @@ Actualizar SIEMPRE este AGENTS.md con fecha, cambios reales, comprobaciones/resu
 
 No hay funcionalidades, autenticación, servidor, build de aplicación ni pruebas funcionales unitarias/integración/E2E. La validación de migración es una comprobación de infraestructura, no un flujo E2E del producto. La base Supabase del .env fue migrada posteriormente por autorización explícita; ver sección de aplicación a Supabase.
 
-Resolver las decisiones pendientes de docs/business-rules.md (en particular confirmación de eliminación, canje e identidad), escribir la primera spec funcional y desarrollar con RED/GREEN/refactor. El esquema por sí solo no impone permisos ni consistencia entre restaurantes. Mantener AGENTS actualizado en cada sesión.
+Las decisiones de identidad, canje y confirmación se resolvieron durante la planificación posterior y están en docs/business-rules.md. El plan BACKEND-001 ordena su desarrollo; derivar la primera spec de módulo antes de implementar con RED/GREEN/refactor cuando se autorice. El esquema por sí solo no impone permisos ni consistencia entre restaurantes. Mantener AGENTS actualizado en cada sesión.
 
 ## Aplicación a Supabase — 2026-10-18
 
@@ -104,3 +104,18 @@ Resolver las decisiones pendientes de docs/business-rules.md (en particular conf
 - Confirmados main, origin correcto y commit 3c1b95b existente. No se reinicializó Git ni se creó un commit first commit redundante.
 - Reintentado git push -u origin main; volvió a fallar porque no hay credenciales HTTPS disponibles en esta sesión. No hubo publicación remota.
 - Sin cambios de configuración o aplicación. Este registro queda como cambio documental local; próximo paso: autenticar GitHub en la terminal y publicar el commit existente.
+
+### Plan de negocio y preparación de publicación — 2026-10-18
+
+- Usuario autorizó guardar el plan completo, acceder al directorio padre, crear commit y publicar en origin/main. Fetch satisfactorio: al iniciar, main y origin/main coincidían en b1d0000; la publicación anterior del usuario está reflejada en el remoto.
+- Guardado docs/specs/BACKEND-001-plan-de-negocio.md: fases, contratos previstos, Google OAuth y registro manual desde QR, 16 criterios de aceptación y matriz de futuras pruebas. Estado documental, sin implementación ni evidencia RED/GREEN funcional.
+- Actualizadas reglas canónicas (BR-004 y BR-008 a BR-021), índice y README; los valores de diseño del plan se distinguen de las respuestas explícitas del usuario. Cambios previos de AGENTS preservados.
+- Comprobaciones satisfactorias: npm run check (Biome, TypeScript y 4 tests de tooling); enlaces locales, espacios, 21 BR y 16 AC; git diff --check. No se ejecutaron pruebas funcionales porque no existe implementación nueva.
+- Sin cambios de aplicación, dependencias, esquema, migraciones, credenciales o Supabase. Google aún no está configurado. Próximo paso: derivar la primera spec de módulo y desarrollar con TDD cuando se autorice.
+- Commit documental preparado para publicación; este registro no anticipa su resultado. Consultar git log y origin/main para el identificador publicado; el informe de cierre confirmará el resultado real del push.
+
+### Resultado del intento de publicación del plan — 2026-10-18
+
+- Commit documental creado. Push HTTPS rechazado por ausencia de credenciales en esta sesión: could not read Username for https://github.com. gh no está instalado y Git no tiene credential.helper configurado; no se imprimieron secretos.
+- Comprobación SSH no interactiva también rechazada con Permission denied (publickey). No se cambió el remoto ni la configuración de autenticación. El rechazo fue de GitHub/autenticación, no de la revisión automática de permisos.
+- Se incorpora este resultado al mismo commit local antes de publicarlo; consultar git log -1 para el identificador final. Pendiente git push -u origin main desde la terminal donde el usuario ya pudo autenticarse. Plan y documentación quedan guardados; origin/main aún no contiene este commit.

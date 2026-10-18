@@ -61,7 +61,7 @@ Leer [AGENTS.md](AGENTS.md) al inicio y actualizarlo al cierre. Seguir el [flujo
 - [Vitest](https://vitest.dev/guide/) y [proyectos de pruebas](https://vitest.dev/config/projects)
 - [Skills en Codex](https://learn.chatgpt.com/docs/build-skills)
 
-Pendientes funcionales y decisiones abiertas: [reglas de negocio](docs/business-rules.md). Evidencia y limitaciones de preparación: [AGENTS.md](AGENTS.md).
+Plan de implementación documentado: [BACKEND-001](docs/specs/BACKEND-001-plan-de-negocio.md), con registro por QR mediante correo/contraseña o Google OAuth usando Supabase Auth. Reglas y decisiones confirmadas: [reglas de negocio](docs/business-rules.md). El plan aún no está implementado y no cambia los comandos de preparación. Evidencia y limitaciones: [AGENTS.md](AGENTS.md).
 
 ## Mantenimiento de dependencias
 
