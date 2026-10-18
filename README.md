@@ -4,7 +4,7 @@ Sistema de fidelización para restaurantes basado en tarjetas digitales. Los pro
 
 ## Estado
 
-Repositorio en preparación inicial, sin código de aplicación ni dependencias. `frontend/` y `backend/` reservan la estructura futura. Los frameworks, la base de datos, la autenticación y el despliegue están pendientes de definición.
+Repositorio sin código de aplicación. `frontend/` sigue reservado; `backend/` tiene Hono, Drizzle/PostgreSQL, Vitest y herramientas instaladas. Autenticación y despliegue pendientes. Ver [preparación del backend](backend/README.md) y [contexto de negocio](backend/docs/index.md).
 
 ## Entorno de desarrollo
 
@@ -33,7 +33,17 @@ git diff --check
 git status --short --branch
 ```
 
-El manifiesto está marcado como privado y no tiene dependencias ni scripts. No hay todavía comandos de desarrollo, compilación o pruebas funcionales. La instalación vacía verifica que npm puede procesar el manifiesto y el lockfile.
+El manifiesto raíz sigue privado y sin dependencias. El backend tiene manifiesto y lockfile propios (sin workspaces); instalarlo por separado:
+
+```bash
+cd backend
+npm ci --ignore-scripts --no-audit --no-fund
+npm run check
+npm run generate
+npm run db:check
+```
+
+No hay servidor ni pruebas funcionales implementadas. `check` verifica herramientas y esquema; `generate` produce SQL sin conectarse. `npm run migrate` aplica SQL a la base configurada en `backend/.env`; consultar antes el README del backend.
 
 ## Configuración del repositorio
 
@@ -48,4 +58,4 @@ Los commits siguen [Conventional Commits 1.0.0](https://www.conventionalcommits.
 
 ## Próximos pasos
 
-Definir el stack de frontend/backend y almacenamiento, el modelo de restaurantes/programas/tarjetas, las reglas de acumulación y canje y los permisos de clientes y personal del restaurante.
+Resolver las decisiones pendientes en [reglas de negocio](backend/docs/business-rules.md) y crear la primera spec funcional antes de implementar con TDD. Consultar `backend/AGENTS.md` para estado y verificaciones. Frontend y despliegue siguen pendientes.
