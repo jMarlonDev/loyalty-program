@@ -8,6 +8,27 @@
       "when": 1792345684556,
       "tag": "0000_initial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792348539781,
+      "tag": "0001_functional_backend",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792348769966,
+      "tag": "0002_private_business_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792350429344,
+      "tag": "0003_legacy_accounting_guard",
+      "breakpoints": true
     }
   ]
 }
