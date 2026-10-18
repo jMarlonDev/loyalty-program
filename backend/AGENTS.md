@@ -98,3 +98,9 @@ Resolver las decisiones pendientes de docs/business-rules.md (en particular conf
 - Commit local de configuración creado (identificador vigente en git log -1). Push HTTPS falló por ausencia de credenciales; autenticación SSH existente rechazada con Permission denied (publickey).
 - No se publicó el commit ni se modificó el remoto. Pendiente autenticar GitHub en el equipo y repetir git push -u origin main. Solicitud enviada al usuario; no se pidieron secretos por chat.
 - Comprobaciones de configuración ya satisfactorias; sin cambios adicionales de aplicación o base de datos.
+
+### Revisión de comandos iniciales de Git — 2026-10-18
+
+- Confirmados main, origin correcto y commit 3c1b95b existente. No se reinicializó Git ni se creó un commit first commit redundante.
+- Reintentado git push -u origin main; volvió a fallar porque no hay credenciales HTTPS disponibles en esta sesión. No hubo publicación remota.
+- Sin cambios de configuración o aplicación. Este registro queda como cambio documental local; próximo paso: autenticar GitHub en la terminal y publicar el commit existente.
