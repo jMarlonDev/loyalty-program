@@ -18,7 +18,7 @@
 
 Las suites tooling, unit, integration y e2e contienen pruebas. No usar `passWithNoTests` ni presentar tooling como cobertura funcional. `npm run check` ejecuta Biome, tipos, tooling y unit; `npm run test:db` ejecuta todas las suites con PostgreSQL temporal y limpieza automática. `npm run test:coverage` está disponible; no se informa porcentaje sin ejecutar esa medición.
 
-Pruebas futuras de integración/E2E usarán exclusivamente `TEST_DATABASE_URL`, con setup que falle si falta o coincide con una BD no aislada; no cargar `.env` de desarrollo automáticamente en Vitest. Migrar fixtures controlados y limpiar solo recursos creados por la suite. Definir umbrales de cobertura al implementar, con prioridad a riesgos y escenarios, sin rellenar métricas.
+Pruebas futuras de integración/E2E usarán exclusivamente `TEST_DATABASE_URL`, con setup que falle si falta o coincide con una BD no aislada; no cargar `.env` de desarrollo automáticamente en Vitest. Migrar fixtures controlados y limpiar solo recursos creados por la suite. Vitest exige cobertura global mínima del 90 % en líneas, sentencias, funciones y ramas. Ejecutar `npm run test:db -- --coverage --sequence.shuffle --sequence.seed=20261018` para reproducir la medición con PostgreSQL temporal. Priorizar riesgos y escenarios; no excluir código para rellenar métricas.
 
 ## Casos mínimos derivados para próximas specs
 

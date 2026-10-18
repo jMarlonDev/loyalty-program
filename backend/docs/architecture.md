@@ -1,22 +1,29 @@
 # Arquitectura y decisiones técnicas
 
-ADR-001 — 2026-10-18 — Implementado por módulos; estado actual en development-status.md.
+ADR-002 — 2026-10-18 — Migración fullstack autorizada; sustituye el transporte y despliegue de ADR-001 conservando dominio, persistencia y contratos.
 
-Cliente y servidor en frontend/ y backend/, comunicados por API. Backend como monolito por capas, un despliegue. Node.js 24.18.1, npm 12.1.0, TypeScript ESM estricto. Hono para HTTP, Drizzle ORM/Kit y pg para PostgreSQL, Vitest para pruebas. Biome para análisis estático y formato. Dependencias exactas y lockfile propio del backend; sin npm workspaces en esta etapa.
+Una aplicación **TanStack Start** integra React SSR, TanStack Router, TanStack Query y rutas servidor en un proceso Node. Vite compila cliente/servidor y Nitro emite `.output/server/index.mjs`. Node 24.18.1/npm 12.1.0, TypeScript estricto, shadcn/Radix y Tailwind. Un workspace npm y un lockfile raíz; Hono y su servidor retirados.
 
-## Organización al comenzar la implementación
+## Límites
 
-- `src/domain/`: reglas y tipos de negocio sin Hono, Drizzle ni acceso a red.
-- `src/application/`: casos de uso y puertos; depende del dominio.
-- `src/infrastructure/`: persistencia y adaptadores; implementa puertos.
-- `src/presentation/http/`: rutas Hono, validación y traducción de errores; invoca casos de uso.
-- `src/main.ts`: composición y servidor cuando se autorice implementar.
-- `db/schema.ts`: definición estructural requerida por Drizzle Kit; no es lógica de aplicación.
+- `src/routes/`: páginas y handlers Start; catch-all `/api/v1/$` preserva los contratos HTTP del backend.
+- `src/features/`, `src/components/`: UI móvil; no deciden permisos ni contabilidad.
+- `src/lib/`: consumo HTTP del mismo origen, Query y sesión pública; ningún secreto del servidor.
+- `src/server/`: cookies HttpOnly, PKCE, CSRF por APP_ORIGIN, adaptador Supabase y composición/pool. El puente normaliza Request del adaptador Nitro sin depender de campos privados de Undici.
+- `backend/src/domain/`: reglas puras; sin framework, DB ni red.
+- `backend/src/application/`: casos de uso/puertos y autorización.
+- `backend/src/infrastructure/`: PostgreSQL y adaptadores existentes.
+- `backend/src/presentation/http/`: catálogo de contratos Web Request/Response, validación, errores, correlación, límites y CORS; Start posee el servidor.
+- `backend/db/schema.ts`, `backend/drizzle/`: esquema e historial preservados.
 
-La composición implementada conecta los módulos sin capas vacías. No importar infraestructura desde dominio o casos de uso. La composición inyectará adaptadores. La autorización y consistencia transaccional deben verificarse en casos de uso, no solo en la UI. QR público de inscripción y token de tarjeta son conceptos distintos.
+La composición inyecta dependencias. El cliente nunca accede directamente a las tablas. La API sigue verificando identidad Supabase y autorización en cada operación; los consumidores con Bearer explícito permanecen compatibles. UI usa cookies con protección de origen y no persiste tokens en localStorage. Se limpia la caché Query al cambiar de identidad.
 
-## Datos
+El QR público de inscripción y el token privado de tarjeta son distintos. La personalización no cambia condiciones de programas, reglas de compras, asignación de sellos, recompensas ni consentimiento. Dos consultas administrativas nuevas exponen resultados/clientes existentes, sin inventar ingresos ni cambiar el libro contable.
 
-`SistemaDeFidelizacion.json` es el modelo estructural aportado por el usuario. `db/schema.ts` es su adaptación ejecutable, verificada por `tests/tooling/schema.test.ts`. `drizzle/` contiene historial SQL y snapshots versionables: nunca editar una migración ya aplicada. Ver `decisions/DB-001.md` y `decisions/DB-002.md` para las correcciones autorizadas. Las ampliaciones documentadas en DB-003/004 añaden restricciones, datos funcionales y protección de acceso; se conserva el historial inicial.
+## Datos y operación
 
-El esquema actual no garantiza por sí solo aislamiento entre restaurantes, idempotencia ni permisos. Esas garantías requieren futuras specs y pruebas; la migración inicial no demuestra preparación para producción.
+Las migraciones 0000–0003 no se reescriben. El JSON original eliminado por el usuario permanece representado por el snapshot 0000 y decisiones DB-001 a DB-004. La autorización e idempotencia viven en casos de uso y transacciones, no solo constraints.
+
+Tests de dominio, integración PostgreSQL, HTTP, UI y navegador usan destinos locales aislados. La composición de producción y la del harness recorren el mismo adaptador Supabase; solo el servidor externo de Auth se simula durante tests. Migraciones de release son explícitas; el arranque no modifica esquema. Nitro cierra el pool mediante su hook close.
+
+Ver [STACK-001](specs/STACK-001-tanstack-start.md), [coordinación](../../docs/migration-harness.md) y [despliegue](../../docs/deployment.md).

@@ -1,19 +1,18 @@
 # Backend de loyalty-program
 
-Backend implementado por módulos y verificado localmente: 210 pruebas correctas, checks y compilación satisfactorios. Estado verificable en [desarrollo por prioridades](docs/development-status.md). Arquitectura de monolito por capas. La entrada de contexto es [docs/index.md](docs/index.md); las [reglas de negocio](docs/business-rules.md) son la fuente de verdad del comportamiento.
+Backend implementado por módulos. La última suite completa de la migración verificó 409 pruebas; la revisión móvil posterior comprobó 227 de unidad/tooling y los recorridos fullstack, sin repetir cobertura. Estado verificable en [desarrollo por prioridades](docs/development-status.md). Arquitectura de monolito por capas. La entrada de contexto es [docs/index.md](docs/index.md); las [reglas de negocio](docs/business-rules.md) son la fuente de verdad del comportamiento.
 
 ## Preparación
 
-Node.js **24.18.1**, npm **12.1.0**; usar `.nvmrc` de la raíz. Desde `backend/`:
+Node.js **24.18.1**, npm **12.1.0**; usar `.nvmrc` de la raíz. Instalar con `npm ci` desde la raíz (workspace y lockfile únicos); después desde `backend/`:
 
 ```bash
-npm ci --ignore-scripts --no-audit --no-fund
 npm run check
 npm run generate
 npm run db:check
 ```
 
-Paquete y lockfile propios; instalar desde la raíz no instala el backend. Dependencias con versiones exactas: Hono y su adaptador Node, Drizzle ORM/Kit, pg, dotenv, TypeScript/tsx, Vitest/cobertura V8 y Biome. `--ignore-scripts` evita lifecycle scripts de terceros; las herramientas se verificaron después de instalar.
+Paquete servidor interno del workspace raíz; instalar desde la raíz instala todo. Dependencias exactas: Drizzle ORM/Kit, pg, dotenv, TypeScript/tsx, Vitest/cobertura V8 y Biome. El transporte usa Request/Response y se ejecuta en las rutas servidor TanStack Start; no hay un servidor Hono separado. `--ignore-scripts` evita lifecycle scripts de terceros; las herramientas se verificaron después de instalar.
 
 ## Base de datos
 
@@ -25,9 +24,9 @@ npm run db:check  # consistencia del historial de migraciones
 npm run migrate   # APLICA las migraciones a DATABASE_URL
 ```
 
-`generate` no abre conexiones. `migrate` usa `drizzle.migrate.config.ts`, carga `.env` y aplica SQL a una base previamente creada; no crea el servidor PostgreSQL ni la base de datos contenedora. Revisar destino y SQL antes de ejecutarlo. El 2026-10-18 se aplicó la migración inicial al proyecto Supabase del `.env`, por autorización explícita del usuario. La migración inicial sí se validó con `npm run migrate` en PostgreSQL 17 temporal: 11 tablas, 16 claves foráneas y segunda ejecución sin repetir cambios. El contenedor de validación fue retirado. Esta validación no cubre funcionalidades del producto.
+`generate` no abre conexiones. `migrate` usa `drizzle.migrate.config.ts`, carga primero `../.env` y después `.env` como fallback y aplica SQL a una base previamente creada; no crea el servidor PostgreSQL ni la base de datos contenedora. Revisar destino y SQL antes de ejecutarlo. El 2026-10-18 se aplicó la migración inicial al proyecto Supabase del `.env`, por autorización explícita del usuario. La migración inicial sí se validó con `npm run migrate` en PostgreSQL 17 temporal: 11 tablas, 16 claves foráneas y segunda ejecución sin repetir cambios. El contenedor de validación fue retirado. Esta validación no cubre funcionalidades del producto.
 
-El esquema reproduce `SistemaDeFidelizacion.json` (11 tablas, 16 relaciones), con la correcciones autorizadas [DB-001](docs/decisions/DB-001.md) y [DB-002](docs/decisions/DB-002.md). Se versionan esquema, SQL y snapshots para reproducibilidad; no se editan migraciones ya aplicadas. El JSON original se conserva.
+El esquema reproduce `SistemaDeFidelizacion.json` (11 tablas, 16 relaciones), con la correcciones autorizadas [DB-001](docs/decisions/DB-001.md) y [DB-002](docs/decisions/DB-002.md). Se versionan esquema, SQL y snapshots para reproducibilidad; no se editan migraciones ya aplicadas. El JSON original fue eliminado previamente; el snapshot 0000 conserva la referencia estructural. Las ampliaciones autorizadas están en DB-003/DB-004 y las migraciones 0001–0003.
 
 ## Calidad
 
@@ -42,14 +41,14 @@ npm run test:watch
 npm run test:coverage
 ```
 
-Hay 210 pruebas y la ejecución global pasa íntegramente. Integración/E2E usan PostgreSQL local aislado mediante `TEST_DATABASE_URL` (nombre `loyalty_test_*`, rol con CREATEDB); Vitest no carga `.env`. `npm run test:db` prepara un PostgreSQL 17 temporal mediante Docker y lo retira al terminar; el script fue validado de principio a fin.
+La auditoría histórica verificó 400 pruebas; ver [calidad y pruebas](docs/testing-quality.md) y el [estado vigente](docs/development-status.md) para las comprobaciones posteriores. Integración/E2E usan PostgreSQL local aislado mediante `TEST_DATABASE_URL` (nombre `loyalty_test_*`, rol temporal con permisos para crear bases y roles de prueba); Vitest no carga `.env`. `npm run test:db` prepara un PostgreSQL 17 temporal mediante Docker y lo retira al terminar; el script espera disponibilidad TCP, se validó de principio a fin y cada suite elimina exclusivamente su base. La suite de integridad inserta datos sintéticos en las 16 tablas y comprueba su eliminación al cerrar.
 
 ```bash
-npm run dev              # tsx watch; carga .env y valida configuración
-npm run build            # compilación TypeScript a dist/
-npm start                # ejecuta dist/src/main.js
 npm run test:db          # suites en contenedor PostgreSQL temporal
+npm run test:db -- --coverage --sequence.shuffle --sequence.seed=20261018
 ```
+
+La cobertura V8 genera informes ignorados por Git en `coverage/` (HTML, LCOV y JSON). Se exige un mínimo global del 90 % en líneas, sentencias, funciones y ramas; no sustituye la verificación de escenarios ni demuestra el proveedor externo.
 
 Además de `DATABASE_URL`, el servidor requiere `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (o `SUPABASE_ANON_KEY`) y `CARD_TOKEN_ENCRYPTION_KEY` (32 bytes en 64 caracteres hexadecimales). `PORT` por defecto 3000; `CORS_ORIGINS` lista orígenes explícitos separados por coma. La plantilla `.env.example` contiene marcadores, nunca credenciales reales. Guardar la clave de cifrado de forma estable y privada: se usa para recuperar tokens de tarjetas e invitaciones.
 
@@ -67,7 +66,7 @@ Leer [AGENTS.md](AGENTS.md) al inicio y actualizarlo al cierre. Seguir el [flujo
 
 ## Referencias oficiales consultadas
 
-- [Hono](https://hono.dev/docs/getting-started/basic)
+- [TanStack Start](https://tanstack.com/start/latest/docs/framework/react/overview)
 - [Drizzle con PostgreSQL](https://orm.drizzle.team/docs/get-started/postgresql-new) — se instalaron versiones estables de npm, no el canal rc del ejemplo actual.
 - [Vitest](https://vitest.dev/guide/) y [proyectos de pruebas](https://vitest.dev/config/projects)
 - [Skills en Codex](https://learn.chatgpt.com/docs/build-skills)
@@ -99,3 +98,7 @@ npx --yes skills find vitest
 ```
 
 La skill ayuda a descubrir y evaluar otras skills; no instala automáticamente todos los resultados. Revisar pertinencia y contenido antes de añadirlas. Conservar `skills-lock.json` en Git; `.agents/` permanece excluido y la instalación se reproduce con el comando indicado. El catálogo estará disponible en el siguiente turno; si no se refresca, reiniciar la sesión. Documentación del CLI: https://github.com/vercel-labs/skills.
+
+## Migración fullstack — 2026-10-18
+
+El servidor y frontend se ejecutan desde la raíz con `npm run dev`, `npm run build` y `npm start`. La instalación ya no es independiente. Ver [README raíz](../README.md), [STACK-001](docs/specs/STACK-001-tanstack-start.md) y [despliegue](../docs/deployment.md). Los resultados anteriores son históricos; el resultado final de esta migración se registra en development-status y AGENTS.

@@ -2,7 +2,7 @@
 
 ## Alcance autorizado
 
-Leer este archivo y `../AGENTS.md` al iniciar cada sesión. La solicitud vigente del 2026-10-18 autoriza desarrollar el backend siguiendo BACKEND-001, delegar tareas pequeñas a subagentes, aplicar TDD, crear commits y actualizar documentación. Sustituye el límite anterior de solo preparación. Frontend fuera de alcance; los cambios remotos de Supabase requieren autorización específica del destino.
+Leer este archivo y `../AGENTS.md` al iniciar cada sesión. La solicitud vigente del 2026-10-18 autoriza reconstruir el sistema fullstack con TanStack Start, frontend responsive y shadcn, delegar tareas a subagentes y aplicar TDD, conservando las reglas de negocio de BACKEND-001. Sustituye la reserva anterior de frontend. `backend/` contiene dominio, casos de uso, persistencia, contratos HTTP y pruebas como workspace de la aplicación raíz; TanStack Start proporciona el servidor. No se han aplicado cambios remotos ni alterado credenciales durante esta migración.
 
 ## Contexto mínimo y fuente de verdad
 
@@ -11,11 +11,11 @@ Leer este archivo y `../AGENTS.md` al iniciar cada sesión. La solicitud vigente
 - `docs/architecture.md`: monolito por capas y stack.
 - `docs/workflow.md`: spec-first/spec-anchored y TDD obligatorios antes de comportamiento nuevo.
 - `docs/specs/`: specs persistentes y plantilla; vincular BR → AC → pruebas.
-- `SistemaDeFidelizacion.json`: modelo estructural original. `db/schema.ts`: adaptación; excepciones autorizadas en `docs/decisions/DB-001.md` y `docs/decisions/DB-002.md`.
+- `drizzle/meta/0000_snapshot.json`: referencia del modelo original, cuyo JSON fue eliminado anteriormente. `db/schema.ts`: adaptación; excepciones autorizadas en `docs/decisions/DB-001.md` y `docs/decisions/DB-002.md`.
 
 ## Herramientas y skills
 
-Node 24.18.1 y npm 12.1.0. Ejecutar desde backend. `npm ci --ignore-scripts --no-audit --no-fund`, `npm run check`, `npm run generate`, `npm run db:check`. Vitest distingue tooling/unit/integration/e2e; no ocultar suites vacías ni equiparar tooling con tests funcionales.
+Node 24.18.1 y npm 12.1.0. Instalar desde la raíz con `npm ci --ignore-scripts --no-audit --no-fund`; ejecutar desde backend: `npm run check`, `npm run generate`, `npm run db:check`. Vitest distingue tooling/unit/integration/e2e; no ocultar suites vacías ni equiparar tooling con tests funcionales.
 
 Skills versionadas (leer la que aplique):
 
@@ -125,7 +125,7 @@ Las decisiones de identidad, canje y confirmación se resolvieron durante la pla
 
 - Usuario autorizó todas las fases de BACKEND-001, subagentes, TDD, documentación y commits; posteriormente solicitó resumen completo y commits propuestos. Tres subagentes implementaron base/STAFF, identidad/programas y harness/esquema/fidelización; el agente principal compuso HTTP, E2E, transacciones, configuración, límites y RLS.
 - Código local: servidor Hono, Supabase Auth verificado, perfiles, restaurantes/sucursales/personal/invitaciones, programas/inscripción/tarjetas/QR cifrado, compras/sellos/premios/reversión, consentimiento y cierre lógico. OpenAPI describe 39 operaciones. Frontend reservado.
-- Esquema ampliado a 16 tablas, migraciones nuevas 0001 y 0002, RLS sin políticas cliente y revocación de acceso directo. Se conserva 0000. PostgreSQL17 temporal exclusivo para tests, sin aplicar cambios a Supabase ni tocar .env.
+- Esquema ampliado a 16 tablas, migraciones nuevas 0001 y 0002, RLS sin políticas cliente y revocación de acceso directo. Se conserva 0000. PostgreSQL 17 temporal exclusivo para tests, sin aplicar cambios a Supabase ni tocar .env.
 - Verificación global final: npm test con TEST_DATABASE_URL aislada: 210 pruebas, 208 pasan y 2 fallan (auditoría de programas y rechazo de contabilidad histórica incompatible). Cinco E2E pasan, incluido ciclo completo por HTTP real. Dobles de identidad no demuestran Google/correo reales.
 - npm run check falla en Biome (siete diagnósticos de formato/imports); typecheck falla por cinco argumentos extra en la prueba de auditoría cuyo repositorio está incompleto. db:check y git diff --check satisfactorios. No se ejecutó cobertura. Specs conservan RED/GREEN por módulo; el resultado agregado actual prevalece sobre cifras previas.
 - Revisión de subagentes interrumpida por límite de uso. Auditoría de programas, protección de datos históricos, CI, ejemplos API y validación externa Google/correo pendientes. No presentar el plan completo ni producción como terminados.
@@ -139,7 +139,7 @@ Las decisiones de identidad, canje y confirmación se resolvieron durante la pla
 
 - Usuario autorizó todos los commits y push al repositorio, sin confirmaciones adicionales. Fetch satisfactorio; main y origin/main partían de 3c3793f. Se conservó la eliminación externa del JSON.
 - Completados auditoría de programas con request_id HTTP, rechazo de estados array y migración nueva 0003 para contabilidad histórica incompatible. No se reescribió 0000/0001/0002. Pruebas RED anteriores ahora GREEN; se resolvieron tipos y formato.
-- `npm run test:db` pasó de principio a fin: 210 pruebas en 25 archivos (6 tooling,149 unit,50 integration,5 e2e), PostgreSQL17 real temporal y contenedor retirado. Check, build, db:check, generate sin cambios y diff --check satisfactorios.
+- `npm run test:db` pasó de principio a fin: 210 pruebas en 25 archivos (6 tooling,149 unit,50 integration,5 e2e), PostgreSQL 17 real temporal y contenedor retirado. Check, build, db:check, generate sin cambios y diff --check satisfactorios.
 - Incidencia de disco lleno resuelta retirando solo caché descargable npm _cacache, aproximadamente 3,7GB; código, credenciales y node_modules preservados. Biome excluye artefactos dist/coverage. Script temporal tolera contenedor ya eliminado por Docker.
 - Revisión de 114 candidatos sin coincidencias con secretos locales; .env, dist y node_modules excluidos de Git. Sin migraciones remotas, cambios de frontend ni credenciales. CI, ejemplos completos y Google/correo real siguen pendientes; no se presenta producción como terminada.
 - Serie de commits Conventional Commits preparada por módulos; identificadores y resultado de publicación se verifican mediante Git al cierre. Specs, workflow, arquitectura, plan, índice y README actualizados con evidencia vigente.
@@ -150,3 +150,74 @@ Las decisiones de identidad, canje y confirmación se resolvieron durante la pla
 - Creados commits funcionales 7849d8c (DB),149b912 (harness),9abf88c (core),f0cfcd7 (identidad),e434d66 (personal),d3c16bc (programas),7df518a (fidelización),dc32092 (API). Commit documental de cierre: consultar git log -1 para su hash final.
 - Push a origin/main rechazado: HTTPS no tiene credenciales disponibles (`could not read Username`); alternativa SSH rechazada (`Permission denied (publickey)`). gh no está instalado. No se cambió remoto ni se registraron secretos. Es un bloqueo de autenticación GitHub, no de permisos del directorio ni de revisión automática.
 - Pendiente publicar la serie desde una sesión autenticada: git push origin main. Código verificado con 210/210 pruebas, build y checks; sin aplicación de migraciones remotas. La documentación y todos los cambios se incluyen en los commits locales autorizados.
+
+
+### Auditoría y refuerzo de pruebas — 2026-10-18
+
+- Solicitud vigente: analizar el backend contra especificaciones, mejorar pruebas, crear datos relacionados en BD y retirarlos tras verificar. Revisión delegada conforme al alcance existente; frontend reservado y Supabase intacto.
+- Añadidas 190 pruebas, fixtures independientes y aserciones de persistencia/rollback. Grafo SQL en 16 tablas, 31 FK, 16 CHECK, índices parciales, RLS y limpieza comprobada en pg_database. Casos de permisos, concurrencia, identidad, personal, programas, fidelización y HTTP.
+- RED/GREEN: UUID mayúsculos provocaban 404; normalizados. Dos tests demostraron pérdida del error original al fallar rollback; ahora conserva error y descarta conexión. E2E identidad aislado daba 404 por dependencia de otro test; corregidas precondiciones. Carrera de initdb observada; runner espera pg_isready por TCP.
+- Validación final: 400/400 pruebas en 28 archivos (6 tooling, 217 unit, 159 integration, 18 e2e), orden aleatorio seed 20261018 con PostgreSQL 17 temporal. Cobertura: líneas 94,36 %, sentencias 92,78 %, ramas 90,47 %, funciones 95,54 %. Umbral global 90 % configurado sin excluir src. Check/build/db:check/generate sin cambios/diff --check satisfactorios.
+- Datos de prueba creados y eliminados; inventario final sin contenedores loyalty-test-*. Sin cambios de esquema/migraciones, .env, frontend ni Supabase. Sin commit/push en esta revisión. README, specs, estado y docs/testing-quality.md actualizados; artefactos de cobertura ignorados por Git.
+- Límites: Google/correo reales, CI, carga y despliegue pendientes; main.ts conserva cobertura operativa limitada, documentada. Próximos pasos: configurar validación externa y CI, y planificar migraciones remotas solo con autorización específica.
+
+
+### Validación de Supabase, Auth y despliegue — 2026-10-18
+
+- Usuario solicitó validar los pendientes externos. Preservados cambios previos; conexión Supabase con transacción READ ONLY y ROLLBACK, sin DDL/DML. Inventario: 11 tablas, 16 FK, 11 PK, 4 UNIQUE, 13 CHECK, 0 filas en tablas de negocio, 1 migración cuyo hash coincide con 0000. RLS activo en 11 tablas; auth.users sin registros. 0001/0002/0003 siguen pendientes.
+- Prueba HTTP real de autorización Google: 400 validation_failed, proveedor no habilitado. Health/settings de Auth sin clave pública: 401. No prueba fallo de servicio ni correo. No se crearon usuarios ni enviaron mensajes.
+- Configuración local efectiva: solo DATABASE_URL de los valores requeridos está disponible; faltan SUPABASE_URL, clave pública (incluida alternativa ANON) y CARD_TOKEN_ENCRYPTION_KEY. npm run build satisfactorio; npm start sale 1. loadConfig identifica SUPABASE_URL ausente.
+- URL del backend desplegado y disponibilidad de cuenta/bandeja de prueba solicitadas al usuario; no se proporcionaron durante las comprobaciones. Google/correo end-to-end y despliegue remoto no validados. Sin cambios de .env, esquema, migraciones, frontend ni remoto; sin commit/push. No se repitieron las 400 pruebas porque esta sesión no modificó código.
+- docs/external-validation.md, índice y estado actualizados. Siguiente paso: aportar configuración/URL y cuenta de prueba, habilitar Google y preparar correo; migrar Supabase requiere autorización específica antes de pruebas funcionales remotas. No se afirma que todo el estado remoto sea históricamente idéntico sin una instantánea completa previa.
+
+
+### Migración del transporte a TanStack Start y lecturas UI — 2026-10-18
+
+- La solicitud vigente autoriza frontend y stack fullstack, manteniendo negocio. Spec previa `docs/specs/STACK-001-tanstack-start.md` y subagentes coordinados; backend queda librería de servidor dentro del workspace raíz.
+- Retirados imports Hono y adaptador Node de src/tests. HTTP usa Request/Response nativos con catálogo pequeño de rutas, errores seguros, correlación, CORS, no-store, headers de seguridad, límite de 16 KiB medido realmente y rate limiting por conexión confiable. Sin proxy headers confiados implícitamente; fallback compartido si el runtime no aporta dirección. Los E2E usan sockets node:http reales en helper exclusivo de pruebas.
+- Preservadas 39 operaciones y reglas/transacciones existentes; añadidas dos lecturas Owner/Admin para resultados reales y clientes paginados (41 operaciones documentadas). Métricas sin importes financieros: usuarios históricos distintos, tarjetas activas, compras no revertidas, premios disponibles/entregados. Saldo viene del libro. Employee y otros tenants conservan rechazos.
+- Lecturas de tarjetas incluyen diseño/meta/premio/código del programa vigente; listado restaurantes devuelve actor_role servidor. Resolución QR permite al personal autorizado identificar cliente y seleccionar premios disponibles, sin exponer hashes, cifrado ni datos extra de perfil.
+- RED/GREEN observado para IPs independientes, Content-Length falso, campos de tarjeta/rol, rutas resultados/clientes y datos de mostrador. `npm run check --workspace backend` correcto (Biome/tipos/6 tooling/222 unit). Suite completa PostgreSQL 17 temporal con seed20261018: 409/409 en 29 archivos (6 tooling,222 unit,163 integración,18 E2E). Cobertura líneas97,34 %, sentencias95,90 %, ramas90,90 %, funciones99,04 %; umbral90 satisfecho.
+- Fixtures nuevas corregidas para usar estado disabled válido y cliente independiente de paginación previa. Sin esquema/migraciones, .env, Supabase, commit ni push modificados en esta tarea. Datos/BD de prueba temporales limpiados por runner; integración UI/build/despliegue de Start son responsabilidad del cierre raíz. No se afirma validación de Google/correo reales ni despliegue remoto.
+
+- Ampliación posterior AC-009: la lista administrativa de personal añade nombre y correo del perfil para identificar personas en la UI. RED observado por campos ausentes; GREEN posterior 14/14 pruebas de integración de staff con PostgreSQL temporal, incluyendo Owner/Admin permitido y Employee/ajeno rechazados. Check posterior también correcto (6 tooling+222 unit). La medición completa de 409 y cobertura indicada arriba precede a esta prueba adicional; el total actual de casos es 410 y su ejecución global se registra en el cierre raíz. OpenAPI distingue EmployeeDirectory de respuestas de mutación sin campos nuevos.
+- Revisión de contratos UI comunicada al agente frontend: accepted:true requerido para consentimiento, referencia de venta limitada a100, navegación Employee sin programas administrativos, programa finalizado sin reactivación y reinicio de selecciones al cambiar QR. Agente frontend confirmó correcciones y prueba RED/GREEN del consentimiento; no se presentan aquí como pruebas ejecutadas por el agente backend.
+
+### Cierre de migración fullstack — 2026-10-18
+
+- TanStack Start/React/Router/Query con shadcn/Radix/Tailwind; aplicación y API en un proceso Nitro/Node. Personalización móvil, QR público/privado, administración, cliente, compras, premios, reversión y consentimiento. Dominio, esquema y migraciones preservados; 41 contratos HTTP (39 previos y dos lecturas administrativas).
+- Retirados Hono/adaptador, servidor y helper de cierre antiguos, build backend, lockfile duplicado y frontend vacío. Workspace/lockfile raíz; generación de rutas antes de tipos, scripts de entorno y pruebas, CI y Dockerfile. No se descartaron cambios previos.
+- Verificación final: 409/409 backend en PostgreSQL 17 temporal y orden aleatorio (6 tooling, 221 unit, 164 integración, 18 E2E); cobertura líneas 97,33 %, sentencias 95,96 %, ramas 90,90 %, funciones 99,03 %. UI/sesión/composición 64/64 (20 UI + 44 servidor). Navegador producción 10/10 (5 escritorio + 5 móvil), con Axe en superficies recorridas y fixtures externos de Auth; DBs/contenedores temporales retirados. Check, tipos, build, db:check, generate sin cambios y diff --check correctos. No atribuir cobertura backend al frontend.
+- RED/GREEN y revisión cruzada corrigieron transporte Request Nitro, headers/IP/cuerpo/consultas, logout con acceso caducado, consentimiento y permisos UI. El harness reinicia servidor/BD por viewport para evitar mezclar tráfico de dos suites bajo el límite real 120/min; no se desactiva el control de producción.
+- Impeccable PRODUCT/DESIGN y hook.enabled configurados. El launcher no encontró proveedor local para instalar disparador automático; detector manual ejecutado (dos avisos estéticos Fraunces acorde referencias). No se afirma hook automático operativo.
+- Entorno real pendiente: APP_ORIGIN, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, CARD_TOKEN_ENCRYPTION_KEY ausentes; env:check lo reporta sin secretos. Supabase remoto no modificado; inventario anterior solo 0000, migraciones 0001–0003 requieren paso de release. Google/SMTP reales, hosting/TLS/carga/backups pendientes. Sin Wallet, subida de imágenes ni escáner de cámara integrado. Dockerfile preparado, imagen no construida en esta sesión.
+- Informe completo y comandos en ../docs/project-review-2026-10-18.md y ../docs/deployment.md. Sin commit/push. Próximos pasos: completar entorno, validar proveedor real, migrar el destino elegido y desplegar/comprobar ready.
+
+- Instalación limpia final desde la raíz: `npm ci --ignore-scripts --no-audit --no-fund` correcta (343 paquetes). Se regenera `src/routeTree.gen.ts` antes de tipos y se excluye de Git; ampliación de tipos Start explícita para checks antes del primer build. Docker final sin contenedores de pruebas.
+- Tras la instalación limpia, `npm run check` volvió a pasar completo (lint, tipos, 64 UI/servidor, 6 tooling y 221 unit), `npm ls --depth=0` y auditoría sin vulnerabilidades correctos; `git diff --check` limpio.
+
+### Acceso, configuración y continuidad de tarjetas — 2026-10-18
+
+- Sin cambios del dominio/esquema/migraciones; se corrigió la capa fullstack de acceso. AUTH-002 documenta mensajes seguros del proveedor y retornos de callback/Google; ACCESS-001 documenta destino de cliente/gestión, errores visibles y continuidad de sesión. Evidencia RED/GREEN registrada en ambas specs.
+- Comprobación local detecta cuatro variables ausentes: APP_ORIGIN, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, CARD_TOKEN_ENCRYPTION_KEY. Guía operativa en ../docs/supabase-setup.md; conserva Supabase Auth y diferencia registro de inscripción. No se volvió a consultar/modificar Supabase ni `.env`.
+- `npm run check` y build correctos: 86 UI/servidor, 6 tooling y 221 unit; navegador producción 10/10 con PostgreSQL17 temporal y proveedor aislado, incluidos creación de cuenta, confirmación/recuperación, Google, inscripción, consulta QR, compras y premios. Contenedores temporales retirados. No se repitieron integración backend completa/cobertura ni se verificó proveedor real. Diff/enlaces documentales correctos.
+- Refactor visual neutral sin café en frontend; reglas/permisos permanecen. Sin commit/push. Próximo paso: operador completa variables, habilita Google/SMTP y revisa/aplica migraciones pendientes al destino correcto antes de validar cuentas reales.
+
+### Acceso móvil, escaneo y sesión persistente — 2026-10-18
+
+- Usuario requiere acceso desde cualquier lugar con HTTPS, pero confirma que todavía no tiene URL pública ni despliegue. Se preparó el código y la guía de publicación; no se afirma disponibilidad remota. Cambios previos preservados, sin commit/push, cambios de `.env`, credenciales, esquema ni Supabase.
+- Origen canónico por GET /api/public-config sin secretos ni dependencia DB; programas, invitaciones y tarjetas usan APP_ORIGIN, con aviso para localhost. `env:check -- --public` rechaza correctamente el origen local actual. Plantilla raíz `.env.example` añadida con todas las variables, sin conexión local ficticia activa que sustituya el fallback válido.
+- Tarjeta con permalink /cards?card=uuid y entrada /scan desde QR privado en fragmento. Personal autorizado recibe formulario sin agregar sellos automáticamente; cámara ZXing 0.2.1 bajo demanda y alternativa manual. QR pendiente por pestaña TTL10min, eliminado tras resolver/logout; reinicia formulario al abrir otro QR en la misma pestaña. Autorización/compra idempotente del backend conservadas.
+- Refresh HttpOnly renovable de 400 días, renovación al recuperar foco/conexión y cada cuatro minutos visible; serializa refresh/logout y sincroniza cierre entre pestañas. Fallos temporales conservan identidad; sesión revocada sí requiere acceso. Primer perfil se crea antes de habilitar consultas de tarjetas, evitando la carrera observada en navegador. /auth con usuario muestra continuar; recuperaciones siguen disponibles.
+- Specs MOBILE-001, MOBILE-QR-001 y SESSION-003 con evidencia RED/GREEN. Check pasó con 131 UI/servidor y 227 backend (6 tooling + 221 unit); regresión final de segundo QR 6/6 aislada y suite UI/servidor final completa 132/132 correctas. Tipos/build finales y navegador registrados en development-status.md. Cámara con permisos/recursos simulados; pendiente validación física y Google/SMTP reales. No se repitió cobertura ni toda la suite backend de integración.
+- README, guía de despliegue/Supabase, PRODUCT/DESIGN y estado actualizados. Impeccable consultado manualmente; launcher indisponible por caché, sin afirmar detector automático. Próximo paso: elegir hosting Node/Docker HTTPS, cargar variables, configurar callback, revisar/aplicar migraciones pendientes al destino y validar desde datos móviles. No se ejecutaron esos pasos remotos.
+
+- Aceptación final: 132/132 UI/servidor y 10/10 navegador producción (5 escritorio + 5 móvil), tipos/build correctos; Axe y capturas revisadas. Registro, recuperación, continuidad QR tras login, compra/canje y reintento de sesión correctos con proveedor simulado. `git diff --check` y enlaces documentales correctos.
+
+Limpieza final verificada: Docker sin contenedores loyalty-test activos. Sin cambios remotos ni publicación.
+
+### Revisión y publicación Git autorizadas — 2026-10-18
+
+- Usuario autorizó crear todos los commits y subirlos al repositorio. Revisados 167 archivos pendientes por contenido/diff; inventario individual y agrupación en docs/commit-review-2026-10-18.md (archivo adicional). Fetch de origin satisfactorio y main coincidía con origin/main antes de preparar commits.
+- Sin código funcional nuevo: se aclaran referencias históricas de pruebas, instalación desde raíz y estado de integración. Validación funcional procede de la tarea inmediatamente anterior: 132 UI/servidor, 227 backend unidad/tooling y 10 navegador producción; no se repitió innecesariamente. Diff sin errores y revisión de secretos sin coincidencias.
+- Cuatro commits previstos: rollback/pool; aplicación fullstack con pruebas/specs; CI/despliegue; documentación/inventario. Secretos, dependencias y artefactos excluidos. Push pendiente de ejecutar; su resultado se añadirá tras comprobar el remoto, sin anticiparlo. No se modifica Supabase ni se despliega hosting.
