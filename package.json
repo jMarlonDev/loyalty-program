@@ -1,0 +1,11 @@
+{
+  "name": "loyalty-program",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Sistema de fidelización para restaurantes basado en tarjetas digitales y sellos.",
+  "engines": {
+    "node": "24.18.1",
+    "npm": "12.1.0"
+  },
+  "packageManager": "npm@12.1.0"
+}
