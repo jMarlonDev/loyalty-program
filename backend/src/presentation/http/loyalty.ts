@@ -1,8 +1,7 @@
-import { Hono } from 'hono';
 import { AppError } from '../../application/errors.js';
 import type { IdentityService } from '../../application/identity.js';
 import type { LoyaltyService } from '../../application/loyalty.js';
-import type { AppEnv } from './base-app.js';
+import { NativeRoutes } from './native-routes.js';
 
 export function createLoyaltyRoutes({
   identityService,
@@ -11,7 +10,7 @@ export function createLoyaltyRoutes({
   identityService: IdentityService;
   loyaltyService: LoyaltyService;
 }) {
-  const routes = new Hono<AppEnv>();
+  const routes = new NativeRoutes();
   const parseJson = async (request: Request): Promise<unknown> => {
     if (
       request.headers

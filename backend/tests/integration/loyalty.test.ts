@@ -652,4 +652,188 @@ describe('LOYALTY-001: transacciones y concurrencia reales', () => {
       audit.rows.filter((row) => row.action === 'card_closed'),
     ).toHaveLength(1);
   });
+  async function snapshot(f: Awaited<ReturnType<typeof fixture>>) {
+    const tables = {
+      memberships: ['id', f.membership],
+      loyalty_cards: ['id', f.card],
+      purchases: ['membership_id', f.membership],
+      rewards: ['membership_id', f.membership],
+      loyalty_ledger_entries: ['membership_id', f.membership],
+      reward_purchase_allocations: ['membership_id', f.membership],
+      closure_consents: ['card_id', f.card],
+      audit_events: ['restaurant_id', f.restaurant],
+      idempotency_records: ['actor_id', f.owner],
+    };
+    const result: Record<string, unknown> = {};
+    for (const [table, [column, id]] of Object.entries(tables)) {
+      result[table] = (
+        await database.pool.query(
+          `SELECT * FROM ${table} WHERE ${column}=$1 ORDER BY id`,
+          [id],
+        )
+      ).rows;
+    }
+    return result;
+  }
+
+  it('AC-002 accepts equivalent uppercase UUIDs and replays the same command', async () => {
+    const f = await fixture();
+    const key = randomUUID();
+    const result = await service.purchase(
+      f.owner,
+      f.restaurant.toUpperCase(),
+      {
+        card_id: f.card.toUpperCase(),
+        location_id: f.location.toUpperCase(),
+        sale_reference: 'upper',
+      },
+      key,
+    );
+    expect(result).toMatchObject({ membership_id: f.membership, balance: 1 });
+    expect(await f.buy('upper', key)).toEqual(result);
+    expect(await count('purchases', f.membership)).toBe(1);
+  });
+
+  it('AC-002 concurrent identical retries commit exactly one purchase, ledger, reward and audit', async () => {
+    const f = await fixture(1),
+      key = randomUUID();
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => f.buy('same', key)),
+    );
+    for (const result of results) expect(result).toEqual(results[0]);
+    expect(await count('purchases', f.membership)).toBe(1);
+    expect(await count('rewards', f.membership)).toBe(1);
+    expect(await count('loyalty_ledger_entries', f.membership)).toBe(2);
+    expect(
+      (
+        await database.pool.query(
+          'SELECT action FROM audit_events WHERE restaurant_id=$1',
+          [f.restaurant],
+        )
+      ).rows,
+    ).toEqual([{ action: 'purchase_created' }]);
+    expect(await service.preview(f.customer, f.card)).toMatchObject({
+      balance: 0,
+      benefits_version: 1,
+    });
+  });
+
+  it.each([
+    ['restaurants', 'restaurant', 'suspended', 403],
+    ['users', 'owner', 'suspended', 403],
+    ['users', 'customer', 'suspended', 403],
+    ['restaurant_employees', 'employee', 'suspended', 403],
+    ['locations', 'location', 'inactive', 409],
+    ['loyalty_programs', 'program', 'paused', 409],
+    ['loyalty_programs', 'program', 'ended', 409],
+    ['memberships', 'membership', 'suspended', 409],
+    ['loyalty_cards', 'card', 'blocked', 409],
+  ] as const)(
+    'AC-002 rejects %s/%s=%s without any persisted effects',
+    async (table, resource, status, expected) => {
+      const f = await fixture(1);
+      await database.pool.query(`UPDATE ${table} SET status=$1 WHERE id=$2`, [
+        status,
+        f[resource],
+      ]);
+      const before = await snapshot(f);
+      await expect(f.buy()).rejects.toMatchObject({ status: expected });
+      expect(await snapshot(f)).toEqual(before);
+    },
+  );
+
+  it('AC-001/002 rolls back a failure after reward allocation and retries without partial effects', async () => {
+    const f = await fixture(1),
+      key = randomUUID();
+    const before = await snapshot(f);
+    await database.pool.query(`CREATE FUNCTION fail_purchase_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.action='purchase_created' THEN RAISE EXCEPTION 'injected audit failure'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER fail_purchase_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION fail_purchase_audit()`);
+    try {
+      await expect(f.buy('retry-after-rollback', key)).rejects.toThrow(
+        'injected audit failure',
+      );
+      expect(await snapshot(f)).toEqual(before);
+    } finally {
+      await database.pool.query(
+        'DROP TRIGGER fail_purchase_audit ON audit_events; DROP FUNCTION fail_purchase_audit()',
+      );
+    }
+    expect(await f.buy('retry-after-rollback', key)).toMatchObject({
+      balance: 0,
+    });
+    expect(await count('purchases', f.membership)).toBe(1);
+    expect(await count('rewards', f.membership)).toBe(1);
+    expect(await count('loyalty_ledger_entries', f.membership)).toBe(2);
+  });
+
+  it('AC-005 rolls back consumed consent, cancelled rewards and QR invalidation if closing audit fails', async () => {
+    const f = await fixture(2),
+      key = randomUUID();
+    await f.buy();
+    await f.buy();
+    await f.buy();
+    const consent = await service.consent(
+      f.customer,
+      f.card,
+      { benefits_version: 3, accepted: true },
+      randomUUID(),
+    );
+    const before = await snapshot(f);
+    await database.pool.query(`CREATE FUNCTION fail_close_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.action='card_closed' THEN RAISE EXCEPTION 'injected close failure'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER fail_close_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION fail_close_audit()`);
+    try {
+      await expect(
+        service.close(
+          f.owner,
+          f.restaurant,
+          f.card,
+          { consent_id: consent.id },
+          key,
+        ),
+      ).rejects.toThrow('injected close failure');
+      expect(await snapshot(f)).toEqual(before);
+    } finally {
+      await database.pool.query(
+        'DROP TRIGGER fail_close_audit ON audit_events; DROP FUNCTION fail_close_audit()',
+      );
+    }
+    expect(
+      await service.close(
+        f.owner,
+        f.restaurant,
+        f.card,
+        { consent_id: consent.id },
+        key,
+      ),
+    ).toMatchObject({ status: 'closed' });
+  });
+
+  it('AC-005 rejects consent exactly at expiration and preserves every benefit', async () => {
+    const f = await fixture();
+    const consent = await service.consent(
+      f.customer,
+      f.card,
+      { benefits_version: 0, accepted: true },
+      randomUUID(),
+    );
+    const before = await snapshot(f);
+    const previous = now;
+    now = new Date(String(consent.expires_at));
+    try {
+      await expect(
+        service.close(
+          f.owner,
+          f.restaurant,
+          f.card,
+          { consent_id: consent.id },
+          randomUUID(),
+        ),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(await snapshot(f)).toEqual(before);
+    } finally {
+      now = previous;
+    }
+  });
 });

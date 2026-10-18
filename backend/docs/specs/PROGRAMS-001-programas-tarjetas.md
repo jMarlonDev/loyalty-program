@@ -44,3 +44,12 @@ Proveedor identidad sustituido solo en pruebas; integración ejecutada con Postg
 
 
 Revisión de auditoría completada antes de publicar: se propagó request_id hasta el repositorio; crear, editar, inscribir y rotar registran eventos en la misma transacción. La prueba RED esperaba cuatro eventos y recibía cero. El replay no repite eventos y la auditoría no contiene tokens. Se corrigió asimismo el rechazo de estados enviados como array. Evidencia agregada de ejecución en AGENTS.
+
+## Refinamiento de verificación — 2026-10-18
+
+Los UUID válidos admiten hexadecimal en mayúsculas y se normalizan a minúsculas antes de comparar recursos o calcular la identidad de un reintento. Cambiar únicamente la representación de un UUID no cambia el recurso ni el comando. Las pruebas de atomicidad inducen un fallo de auditoría después de escribir efectos y verifican rollback de negocio, auditoría e idempotencia; un reintento posterior puede completar el comando.
+
+- Regresión RED: UUID con hexadecimal mayúsculo no se normalizaba, rompiendo la equivalencia del comando. GREEN unitario tras normalización; cursores también conservan la identidad canónica.
+- Pruebas ampliadas: paginación completa sin duplicados/omisiones/filtración de tarjetas ajenas; creación rechazada compara persistencia previa; listado ya no requiere tarjetas creadas por otro test; fallo inducido al auditar inscripción revierte membresía, tarjeta, bloqueo de condiciones e idempotencia.
+- Verificación focal: 25 pruebas unitarias de programas y 14 de integración dentro de la ejecución conjunta programas/fidelización (41/41 correctas con PostgreSQL 17 temporal). No se modifica Supabase ni el esquema.
+- Repetición focal con orden aleatorio (`--sequence.shuffle --sequence.seed=20261018`): 41/41 correctas; no depende del orden previo de ejecución. Ambas ejecuciones finalizaron con limpieza automática.

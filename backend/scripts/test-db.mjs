@@ -63,6 +63,8 @@ try {
         'exec',
         name,
         'pg_isready',
+        '-h',
+        '127.0.0.1',
         '-U',
         'loyalty_test',
         '-d',
@@ -84,7 +86,16 @@ try {
     TEST_DATABASE_URL: `postgresql://loyalty_test:${password}@127.0.0.1:${port}/loyalty_test_control`,
   };
   delete env.DATABASE_URL;
-  await run('npm', ['test', '--', ...process.argv.slice(2)], {
+  const browser = process.argv[2] === '--browser';
+  const browserArgs = process.argv
+    .slice(3)
+    .filter((value) => value !== '--production');
+  if (browser && process.argv.includes('--production'))
+    env.LOYALTY_BROWSER_PRODUCTION = '1';
+  const args = browser
+    ? ['--prefix', '..', 'run', 'test:browser', '--', ...browserArgs]
+    : ['test', '--', ...process.argv.slice(2)];
+  await run('npm', args, {
     env,
     stdio: 'inherit',
   });

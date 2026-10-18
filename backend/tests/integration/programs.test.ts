@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createApp } from '../../src/app.js';
 import { PgProgramRepository } from '../../src/infrastructure/programs-repository.js';
 import { createTestDatabase, type TestDatabase } from '../helpers/database.js';
 
@@ -52,7 +53,188 @@ describe('PROGRAMS-001 PostgreSQL', () => {
     if (database) await database.cleanup();
   });
   const create = () => repo.create(owner, restaurant, input, randomUUID());
+  it('STACK-001 AC-008 exposes tenant-safe administrative results and paginated customers', async () => {
+    const program = await create();
+    const enrolled = await repo.enroll(
+      customer,
+      String(program.public_code),
+      randomUUID(),
+    );
+    const membershipId = enrolled.membership.id;
+    const locationId = randomUUID();
+    const staffId = (
+      await database.pool.query(
+        'SELECT id FROM restaurant_employees WHERE user_id=$1 AND restaurant_id=$2',
+        [owner, restaurant],
+      )
+    ).rows[0].id;
+    await database.pool.query(
+      "INSERT INTO locations(id,restaurant_id,name,address,city,department,status,created_at,updated_at) VALUES($1,$2,'Branch','Address','City','Region','active',now(),now())",
+      [locationId, restaurant],
+    );
+    for (const reversed of [false, true])
+      await database.pool.query(
+        'INSERT INTO purchases(id,membership_id,employee_id,location_id,stamps_earned,created_at,reversed_at) VALUES($1,$2,$3,$4,1,now(),$5)',
+        [
+          randomUUID(),
+          membershipId,
+          staffId,
+          locationId,
+          reversed ? new Date() : null,
+        ],
+      );
+    for (const delta of [3, -1])
+      await database.pool.query(
+        'INSERT INTO loyalty_ledger_entries(id,membership_id,stamp_delta,created_at) VALUES($1,$2,$3,now())',
+        [randomUUID(), membershipId, delta],
+      );
+    for (const status of ['available', 'redeemed', 'cancelled'])
+      await database.pool.query(
+        "INSERT INTO rewards(id,membership_id,description,stamps_spent,status,earned_at) VALUES($1,$2,'Reward',3,$3,now())",
+        [randomUUID(), membershipId, status],
+      );
+    const app = createApp({
+      pool: database.pool,
+      cardTokenEncryptionKey: 'ab'.repeat(32),
+      identityProvider: {
+        verifyAccessToken: async (token) => ({
+          id: token,
+          email: `${token}@test.example`,
+          emailVerified: true,
+        }),
+      },
+    });
+    const path = `/api/v1/restaurants/${restaurant}/programs/${program.id}`;
+    const headers = { Authorization: `Bearer ${owner}` };
+    const results = await app.request(`${path}/results`, { headers });
+    expect(results.status).toBe(200);
+    expect(await results.json()).toEqual({
+      data: {
+        customers: 1,
+        active_cards: 1,
+        purchases: 1,
+        available_rewards: 1,
+        redeemed_rewards: 1,
+      },
+    });
+    const customers = await app.request(`${path}/customers?limit=1`, {
+      headers,
+    });
+    expect(customers.status).toBe(200);
+    expect(await customers.json()).toMatchObject({
+      data: [
+        {
+          id: membershipId,
+          user_id: customer,
+          full_name: 'Test',
+          email: `${customer}@test.example`,
+          card_id: enrolled.card.id,
+          balance: 2,
+          purchases: 1,
+          available_rewards: 1,
+          redeemed_rewards: 1,
+        },
+      ],
+      next_cursor: null,
+    });
+    const secondCustomer = randomUUID();
+    await database.pool.query(
+      "INSERT INTO users(id,full_name,email,status,created_at,updated_at) VALUES($1,'Second customer',$2,'active',now(),now())",
+      [secondCustomer, `${secondCustomer}@test.example`],
+    );
+    await repo.enroll(
+      secondCustomer,
+      String(program.public_code),
+      randomUUID(),
+    );
+    const page = await (
+      await app.request(`${path}/customers?limit=1`, { headers })
+    ).json();
+    expect(page.data).toHaveLength(1);
+    expect(page.next_cursor).toBeTruthy();
+    const next = await (
+      await app.request(
+        `${path}/customers?limit=1&cursor=${page.next_cursor}`,
+        { headers },
+      )
+    ).json();
+    expect(next.data[0].id).not.toBe(page.data[0].id);
+    expect(next.next_cursor).toBeNull();
+    for (const suffix of ['results', 'customers']) {
+      expect((await app.request(`${path}/${suffix}`)).status).toBe(401);
+      expect(
+        (
+          await app.request(`${path}/${suffix}`, {
+            headers: { Authorization: `Bearer ${employee}` },
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await app.request(`${path}/${suffix}`, {
+            headers: { Authorization: `Bearer ${customer}` },
+          })
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await app.request(
+            `/api/v1/restaurants/${foreignRestaurant}/programs/${program.id}/${suffix}`,
+            { headers },
+          )
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await app.request(
+            `/api/v1/restaurants/${restaurant}/programs/${randomUUID()}/${suffix}`,
+            { headers },
+          )
+        ).status,
+      ).toBe(404);
+    }
+    expect(
+      (await app.request(`${path}/customers?limit=101`, { headers })).status,
+    ).toBe(400);
+    expect(
+      (await app.request(`${path}/customers?cursor=bad`, { headers })).status,
+    ).toBe(400);
+  });
+  it('STACK-001 AC-008 resolves customer and only available rewards for authorized counter staff', async () => {
+    const program = await create();
+    const enrolled = await repo.enroll(
+      customer,
+      String(program.public_code),
+      randomUUID(),
+    );
+    const available = randomUUID();
+    for (const [id, status] of [
+      [available, 'available'],
+      [randomUUID(), 'redeemed'],
+      [randomUUID(), 'cancelled'],
+    ])
+      await database.pool.query(
+        "INSERT INTO rewards(id,membership_id,description,stamps_spent,status,earned_at) VALUES($1,$2,'Reward',3,$3,now())",
+        [id, enrolled.membership.id, status],
+      );
+    const qr = await repo.getQr(customer, String(enrolled.card.id));
+    expect(
+      await repo.resolveCard(employee, restaurant, qr.token),
+    ).toMatchObject({
+      customer_name: 'Test',
+      customer_email: `${customer}@test.example`,
+      available_rewards: [
+        { id: available, description: 'Reward', status: 'available' },
+      ],
+    });
+    await expect(
+      repo.resolveCard(employee, foreignRestaurant, qr.token),
+    ).rejects.toMatchObject({ status: 404 });
+  });
   it('AC-001 rejects employee and outsider creation without persistence', async () => {
+    const before = (
+      await database.pool.query('SELECT id FROM loyalty_programs ORDER BY id')
+    ).rows;
     await expect(
       repo.create(employee, restaurant, input, randomUUID()),
     ).rejects.toMatchObject({ status: 403 });
@@ -60,12 +242,9 @@ describe('PROGRAMS-001 PostgreSQL', () => {
       repo.create(other, restaurant, input, randomUUID()),
     ).rejects.toMatchObject({ status: 404 });
     expect(
-      (
-        await database.pool.query(
-          'SELECT count(*)::int AS n FROM loyalty_programs',
-        )
-      ).rows[0].n,
-    ).toBe(0);
+      (await database.pool.query('SELECT id FROM loyalty_programs ORDER BY id'))
+        .rows,
+    ).toEqual(before);
   });
   it('AC-001 creates and retries without duplicating; exposes public minimum', async () => {
     const key = randomUUID(),
@@ -165,6 +344,52 @@ describe('PROGRAMS-001 PostgreSQL', () => {
       repo.publicByCode(String(program.public_code)),
     ).rejects.toMatchObject({ status: 404 });
   });
+  it('STACK-001 AC-007 exposes current program design and target on owned cards', async () => {
+    const program = await repo.create(
+      owner,
+      restaurant,
+      {
+        ...input,
+        logo_url: 'https://example.test/logo.png',
+        card_message: 'Gracias por volver',
+      },
+      randomUUID(),
+    );
+    const enrollment = await repo.enroll(
+      customer,
+      String(program.public_code),
+      randomUUID(),
+    );
+    const expected = {
+      stamps_required: input.stamps_required,
+      reward_description: input.reward_description,
+      background_color: input.background_color,
+      text_color: input.text_color,
+      logo_url: 'https://example.test/logo.png',
+      card_message: 'Gracias por volver',
+      public_code: program.public_code,
+    };
+    expect(
+      await repo.cardDetails(customer, String(enrollment.card.id)),
+    ).toMatchObject(expected);
+    const list = await repo.listCards(customer, { cursor: null, limit: 100 });
+    expect(
+      list.data.find((card) => card.id === enrollment.card.id),
+    ).toMatchObject(expected);
+    await repo.update(
+      owner,
+      restaurant,
+      String(program.id),
+      { background_color: '#225533' },
+      randomUUID(),
+    );
+    expect(
+      await repo.cardDetails(customer, String(enrollment.card.id)),
+    ).toMatchObject({ ...expected, background_color: '#225533' });
+    await expect(
+      repo.cardDetails(other, String(enrollment.card.id)),
+    ).rejects.toMatchObject({ status: 404 });
+  });
   it('AC-004 isolates own details/history and paginates cards', async () => {
     const program = await create(),
       enrollment = await repo.enroll(
@@ -185,6 +410,8 @@ describe('PROGRAMS-001 PostgreSQL', () => {
       () => repo.getQr(other, String(enrollment.card.id)),
     ])
       await expect(read()).rejects.toMatchObject({ status: 404 });
+    const another = await create();
+    await repo.enroll(customer, String(another.public_code), randomUUID());
     const list = await repo.listCards(customer, { cursor: null, limit: 1 });
     expect(list.data).toHaveLength(1);
     expect(list.next_cursor).toBeTruthy();
@@ -442,5 +669,103 @@ describe('PROGRAMS-001 PostgreSQL', () => {
     expect(events.every((row) => JSON.stringify(row.details) === '{}')).toBe(
       true,
     );
+  });
+  it('AC-004 pages every own card exactly once without relying on other test fixtures', async () => {
+    const expected: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const program = await create();
+      const enrollment = await repo.enroll(
+        other,
+        String(program.public_code),
+        randomUUID(),
+      );
+      expected.push(String(enrollment.card.id));
+      await repo.enroll(customer, String(program.public_code), randomUUID());
+    }
+    const actual: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 3; page++) {
+      const result = await repo.listCards(other, { cursor, limit: 2 });
+      expect(result.data).toHaveLength(page < 2 ? 2 : 1);
+      expect(result.data.every((row) => row.user_id === other)).toBe(true);
+      actual.push(...result.data.map((row) => String(row.id)));
+      cursor = result.next_cursor;
+      if (page < 2) expect(cursor).toBe(result.data.at(-1)?.id);
+    }
+    expect(cursor).toBeNull();
+    expect(actual).toEqual(expected.sort());
+    expect(
+      await repo.listCards(other, { cursor: actual.at(-1) ?? null, limit: 2 }),
+    ).toEqual({ data: [], next_cursor: null });
+  });
+
+  it('AC-002/003 rolls back membership, card and locked terms if enrollment audit fails', async () => {
+    const program = await create(),
+      key = randomUUID();
+    const before = await repo.get(owner, restaurant, String(program.id));
+    const beforeCards = (
+      await database.pool.query('SELECT id FROM loyalty_cards ORDER BY id')
+    ).rows;
+    const requestId = randomUUID();
+    await database.pool.query(`CREATE FUNCTION fail_enroll_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.action='program.enroll' THEN RAISE EXCEPTION 'injected enrollment failure'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER fail_enroll_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION fail_enroll_audit()`);
+    try {
+      await expect(
+        repo.enroll(customer, String(program.public_code), key, requestId),
+      ).rejects.toThrow('injected enrollment failure');
+      expect(await repo.get(owner, restaurant, String(program.id))).toEqual(
+        before,
+      );
+      expect(
+        (
+          await database.pool.query(
+            'SELECT id FROM memberships WHERE program_id=$1',
+            [program.id],
+          )
+        ).rows,
+      ).toEqual([]);
+      expect(
+        (
+          await database.pool.query(
+            'SELECT id FROM idempotency_records WHERE actor_id=$1 AND key=$2',
+            [customer, key],
+          )
+        ).rows,
+      ).toEqual([]);
+      expect(
+        (
+          await database.pool.query(
+            'SELECT id FROM audit_events WHERE request_id=$1',
+            [requestId],
+          )
+        ).rows,
+      ).toEqual([]);
+      expect(
+        (await database.pool.query('SELECT id FROM loyalty_cards ORDER BY id'))
+          .rows,
+      ).toEqual(beforeCards);
+    } finally {
+      await database.pool.query(
+        'DROP TRIGGER fail_enroll_audit ON audit_events; DROP FUNCTION fail_enroll_audit()',
+      );
+    }
+    const enrolled = await repo.enroll(
+      customer,
+      String(program.public_code),
+      key,
+    );
+    expect(enrolled.created).toBe(true);
+    expect(await repo.get(owner, restaurant, String(program.id))).toMatchObject(
+      { terms_locked: true },
+    );
+    expect(
+      (
+        await database.pool.query(
+          'SELECT id FROM loyalty_cards WHERE membership_id=$1',
+          [enrolled.membership.id],
+        )
+      ).rows,
+    ).toEqual([{ id: enrolled.card.id }]);
   });
 });

@@ -460,7 +460,7 @@ export class PgStaffRepository implements StaffRepository {
       ];
       let sql: string;
       if (query.collection === 'restaurants') {
-        sql = `SELECT r.* FROM restaurants r JOIN restaurant_employees e ON e.restaurant_id=r.id
+        sql = `SELECT r.*,role.rol_type AS actor_role FROM restaurants r JOIN restaurant_employees e ON e.restaurant_id=r.id
           JOIN roles role ON role.id=e.role_id WHERE e.user_id=$1 AND e.status='active'
           AND (r.status='active' OR role.rol_type='owner') AND ($2::uuid IS NULL OR r.id>$2)
           ORDER BY r.id LIMIT $3`;
@@ -490,7 +490,7 @@ export class PgStaffRepository implements StaffRepository {
           query.collection === 'locations'
             ? 'SELECT * FROM locations WHERE restaurant_id=$1 AND ($2::uuid IS NULL OR id>$2) ORDER BY id LIMIT $3'
             : query.collection === 'employees'
-              ? `${staffSelection} WHERE e.restaurant_id=$1 AND ($2::uuid IS NULL OR e.id>$2) ORDER BY e.id LIMIT $3`
+              ? `SELECT e.*,r.rol_type AS role,u.full_name,u.email FROM restaurant_employees e JOIN roles r ON r.id=e.role_id JOIN users u ON u.id=e.user_id WHERE e.restaurant_id=$1 AND ($2::uuid IS NULL OR e.id>$2) ORDER BY e.id LIMIT $3`
               : `${invitationSelection} WHERE i.restaurant_id=$1 AND ($2::uuid IS NULL OR i.id>$2) ORDER BY i.id LIMIT $3`;
       }
       const rows = (await client.query<Row>(sql, params)).rows;

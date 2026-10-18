@@ -136,7 +136,7 @@ export function requireUuid(value: string): string {
     )
   )
     return invalid();
-  return value;
+  return value.toLowerCase();
 }
 export function requireEmptyBody(body: unknown): void {
   if (

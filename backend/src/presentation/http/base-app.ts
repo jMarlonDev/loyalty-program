@@ -1,49 +1,63 @@
 import { randomUUID } from 'node:crypto';
-import { Hono } from 'hono';
 import { AppError } from '../../application/errors.js';
+import { type ConnectionInfo, NativeRoutes } from './native-routes.js';
 
-export type AppEnv = { Variables: { requestId: string } };
 export interface BaseAppDependencies {
   checkDatabase: () => Promise<void>;
 }
 
-export function createBaseApp(dependencies: BaseAppDependencies) {
-  const app = new Hono<AppEnv>();
-  app.use('*', async (context, next) => {
-    const candidate = context.req.header('X-Request-Id');
+class HttpApplication extends NativeRoutes {
+  fetch = async (
+    request: Request,
+    connection: ConnectionInfo = {},
+  ): Promise<Response> => {
+    const candidate = request.headers.get('X-Request-Id');
     const requestId =
       candidate && /^[a-zA-Z0-9_-]{1,64}$/.test(candidate)
         ? candidate
         : randomUUID();
-    context.set('requestId', requestId);
-    context.header('X-Request-Id', requestId);
-    await next();
-  });
-  app.onError((error, context) => {
-    const known = error instanceof AppError;
-    return context.json(
-      {
-        error: {
-          code: known ? error.code : 'INTERNAL_ERROR',
-          message: known ? error.message : 'Internal server error',
-          request_id: context.get('requestId'),
+    const headers = new Headers({ 'X-Request-Id': requestId });
+    const dispatch = (input: Request) =>
+      this.dispatch(input, headers, requestId);
+    let response: Response;
+    try {
+      response = this.boundary
+        ? await this.boundary(request, connection, headers, dispatch)
+        : await dispatch(request);
+    } catch (error) {
+      const known = error instanceof AppError;
+      response = Response.json(
+        {
+          error: {
+            code: known ? error.code : 'INTERNAL_ERROR',
+            message: known ? error.message : 'Internal server error',
+            request_id: requestId,
+          },
         },
-      },
-      known ? error.status : 500,
+        { status: known ? error.status : 500 },
+      );
+    }
+    const finalHeaders = new Headers(response.headers);
+    headers.forEach((value, key) => {
+      finalHeaders.set(key, value);
+    });
+    return new Response(request.method === 'HEAD' ? null : response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: finalHeaders,
+    });
+  };
+  request(input: string | Request, init?: RequestInit) {
+    return this.fetch(
+      input instanceof Request
+        ? new Request(input, init)
+        : new Request(new URL(input, 'http://localhost'), init),
     );
-  });
-  app.notFound((context) =>
-    context.json(
-      {
-        error: {
-          code: 'NOT_FOUND',
-          message: 'Resource not found',
-          request_id: context.get('requestId'),
-        },
-      },
-      404,
-    ),
-  );
+  }
+}
+
+export function createBaseApp(dependencies: BaseAppDependencies) {
+  const app = new HttpApplication();
   app.get('/health', (context) => context.json({ data: { status: 'ok' } }));
   app.get('/ready', async (context) => {
     try {

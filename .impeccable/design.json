@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "Lealtad — fidelización general",
+  "tokens": {
+    "colors": { "background": "#F5F7FB", "surface": "#FFFFFF", "foreground": "#182444", "muted": "#58637A", "border": "#DCE2ED", "accent": "#304C9B", "highlight": "#D7EF7B", "success": "#246145", "destructive": "#A42929" },
+    "fonts": { "body": "DM Sans Variable", "display": "DM Sans Variable" },
+    "spacing": [4, 8, 12, 16, 24, 32, 48, 64],
+    "radius": { "panel": 14, "control": 8 },
+    "touchTarget": 44
+  },
+  "source": "src/styles.css",
+  "surfaces": ["landing", "workspace"]
+}

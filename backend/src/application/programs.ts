@@ -45,6 +45,17 @@ export interface ProgramRepository {
     key: string,
     requestId?: string,
   ): Promise<ProgramRecord>;
+  results(
+    actorId: string,
+    restaurantId: string,
+    programId: string,
+  ): Promise<ProgramRecord>;
+  customers(
+    actorId: string,
+    restaurantId: string,
+    programId: string,
+    page: PageInput,
+  ): Promise<ProgramPage>;
   publicByCode(code: string): Promise<ProgramRecord>;
   enroll(
     actorId: string,
@@ -146,6 +157,24 @@ export function createProgramService(repo: ProgramRepository) {
         valid(() => parseProgramInput(body, false)),
         key(idempotencyKey),
         requestId,
+      ),
+    results: (actor: string, restaurant: string, program: string) =>
+      repo.results(
+        actor,
+        valid(() => requireUuid(restaurant)),
+        valid(() => requireUuid(program)),
+      ),
+    customers: (
+      actor: string,
+      restaurant: string,
+      program: string,
+      query: { cursor?: string; limit?: string },
+    ) =>
+      repo.customers(
+        actor,
+        valid(() => requireUuid(restaurant)),
+        valid(() => requireUuid(program)),
+        valid(() => parsePage(query)),
       ),
     publicByCode: (value: string) => repo.publicByCode(code(value)),
     enroll: (

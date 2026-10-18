@@ -1,4 +1,3 @@
-import { type Context, Hono } from 'hono';
 import { AppError } from '../../application/errors.js';
 import type { IdentityService } from '../../application/identity.js';
 import type {
@@ -6,13 +5,13 @@ import type {
   StaffCollection,
   StaffService,
 } from '../../application/staff.js';
-import type { AppEnv } from './base-app.js';
+import { type HttpContext, NativeRoutes } from './native-routes.js';
 
 export function createStaffRoutes(dependencies: {
   identityService: IdentityService;
   staffService: StaffService;
 }) {
-  const app = new Hono<AppEnv>();
+  const app = new NativeRoutes();
   const mutations: [string, string, StaffAction][] = [
     ['POST', '/restaurants', 'restaurant.create'],
     ['PATCH', '/restaurants/:restaurantId', 'restaurant.update'],
@@ -42,7 +41,7 @@ export function createStaffRoutes(dependencies: {
     ['/restaurants/:restaurantId/employees', 'employees'],
     ['/restaurants/:restaurantId/invitations', 'invitations'],
   ];
-  async function authenticate(context: Context<AppEnv>) {
+  async function authenticate(context: HttpContext) {
     const identity = await dependencies.identityService.authenticate(
       context.req.header('Authorization'),
     );

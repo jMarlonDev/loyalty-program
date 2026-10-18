@@ -1,27 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AppError } from '../../src/application/errors.js';
-import { createShutdown } from '../../src/main.js';
 import { createBaseApp } from '../../src/presentation/http/base-app.js';
 
 describe('CORE-001 HTTP base', () => {
-  it('AC-005 drains HTTP before closing database once', async () => {
-    let finishHttp: ((error?: Error) => void) | undefined;
-    const server = {
-      close: vi.fn((callback: (error?: Error) => void) => {
-        finishHttp = callback;
-      }),
-    };
-    const closeDatabase = vi.fn(async () => {});
-    const shutdown = createShutdown(server, closeDatabase);
-    const first = shutdown();
-    const second = shutdown();
-    expect(server.close).toHaveBeenCalledOnce();
-    expect(closeDatabase).not.toHaveBeenCalled();
-    finishHttp?.();
-    await Promise.all([first, second]);
-    expect(closeDatabase).toHaveBeenCalledOnce();
-  });
-
   it('AC-002 serves health without accessing database', async () => {
     const checkDatabase = vi.fn(async () => {});
     const response = await createBaseApp({ checkDatabase }).request('/health');

@@ -1,13 +1,13 @@
-import { Hono } from 'hono';
 import { AppError } from '../../application/errors.js';
 import type { IdentityService } from '../../application/identity.js';
+import { NativeRoutes } from './native-routes.js';
 
 export function createIdentityRoutes({
   identityService,
 }: {
   identityService: IdentityService;
 }) {
-  const routes = new Hono();
+  const routes = new NativeRoutes();
   const parseJson = async (request: Request): Promise<unknown> => {
     const contentType = request.headers
       .get('content-type')

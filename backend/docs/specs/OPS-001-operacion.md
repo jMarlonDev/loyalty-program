@@ -19,3 +19,9 @@ Logs JSON incluyen exclusivamente request_id, método, estado y duración. Nunca
 - AC-005 — OpenAPI enumera las rutas realmente montadas y sus contratos; ejemplos y comandos reproducibles; CI ejecuta tooling/unit/integration/e2e/build/db:check.
 
 Pruebas unit HTTP `tests/unit/operations.test.ts`, verificación de rutas OpenAPI y E2E funcional de ciclo completo; PostgreSQL real aislado y proveedor Auth doble. RED/GREEN: cuatro pruebas de protección HTTP fallaron antes de implementar y pasan; cinco pruebas OpenAPI verifican las 39 operaciones montadas, parámetros, seguridad y schemas. La ejecución remota del pipeline y Google real requieren entorno externo y no se afirman con pruebas locales.
+
+## Revisión de calidad — 2026-10-18
+
+Se añaden límites exactos en bytes UTF-8, preservación de cuerpo, CORS/correlación/no-cache en errores, logs de 429 y tolerancia al fallo del destino de logs. `http-access.test.ts` recorre las 35 operaciones privadas realmente montadas y verifica 401 antes de consultar identidad o BD. `http-rejections.test.ts` prueba HTTP real con JSON inválido, tipo de contenido incorrecto y arrays en los cuatro módulos, más cuerpo excesivo, comparando el estado completo de las 16 tablas antes/después. El ciclo E2E incorpora consultas paginadas, movimientos, rotación/replay de QR, invalidación del token anterior y revocación de consentimiento. Proveedor Auth sigue sustituido por doble explícito.
+
+Cobertura global mínima del 90 % en líneas, sentencias, funciones y ramas, sin excluir archivos de `src/`. Evidencia agregada y límites en [calidad](../testing-quality.md). El workflow CI se preparó posteriormente en `.github/workflows/ci.yml`; su ejecución remota sigue sin verificarse. Estos resultados corresponden a ejecución local.

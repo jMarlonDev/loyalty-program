@@ -112,3 +112,20 @@ Evidencia del 2026-10-18:
 La API no envía correo; devuelve token para que el restaurante comparta el enlace.
 No hay transferencia de Owner. La prueba de aceptación simula identidad ya
 verificada; no prueba el envío/verificación de correo del proveedor.
+
+## Refinamiento de calidad — 2026-10-18
+
+- AC-002: se usan IDs válidos de sucursal, empleado e invitación de otro
+  restaurante. Los tres comandos devuelven 404 y conservan recursos, auditoría
+  e idempotencia, incluso cuando el actor es Owner de su propio restaurante.
+- AC-004: destinatario incorrecto y correo sin verificar dejan la invitación
+  pendiente y no crean personal, auditoría ni resultado idempotente. El receptor
+  correcto puede aceptarla después. Repetir creación devuelve el mismo token;
+  el resultado persistido lo conserva cifrado y la auditoría no lo contiene.
+- AC-007: una restricción temporal exclusiva de la BD de prueba provoca fallo
+  de auditoría tras escribir pertenencia e invitación. Se comprueba rollback de
+  ambas, ausencia de evento/clave y éxito al reintentar la misma clave una vez
+  retirada la restricción. Se elimina siempre la restricción mediante finally.
+- El reloj del fixture se restablece antes de cada caso. Integración focal inicial
+  de identidad/personal: 19/19; el cierre global registra la verificación final.
+  Estas pruebas usan PostgreSQL temporal y no modifican Supabase ni reglas nuevas.

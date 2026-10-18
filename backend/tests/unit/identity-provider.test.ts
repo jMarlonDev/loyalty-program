@@ -72,6 +72,10 @@ describe('IDENTITY-001 Supabase verification adapter', () => {
   );
   it.each([
     {},
+    null,
+    [],
+    { ...user, email: 'bad\u0000@example.test' },
+    { ...user, email_confirmed_at: 'not-a-date' },
     { ...user, id: 'not-a-uuid' },
     { ...user, email: null },
     { ...user, email: 'a'.repeat(256) },
@@ -92,6 +96,34 @@ describe('IDENTITY-001 Supabase verification adapter', () => {
     });
     expect(fetcher.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
   });
+  it('AC-005 aborta una petición pendiente al vencer el timeout sin filtrar secretos', async () => {
+    const fetcher = vi.fn<typeof fetch>(
+      async (_url, init) =>
+        new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) throw new Error('Expected abort signal');
+          signal.addEventListener(
+            'abort',
+            () => reject(new Error('secret-timeout-details')),
+            { once: true },
+          );
+        }),
+    );
+    const provider = new SupabaseIdentityProvider({
+      url: 'https://project.supabase.co/',
+      apiKey: 'secret-api-key',
+      fetch: fetcher,
+      timeoutMs: 10,
+    });
+    const result = provider.verifyAccessToken('secret-token');
+    await expect(result).rejects.toMatchObject({
+      status: 503,
+      code: 'IDENTITY_UNAVAILABLE',
+      message: 'El servicio de identidad no está disponible.',
+    });
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+
   it('AC-005 rejects invalid JSON', async () => {
     const { provider } = setup(new Response('not-json'));
     await expect(provider.verifyAccessToken('token')).rejects.toMatchObject({

@@ -44,3 +44,26 @@ Persistencia: `users.id` equivale al UUID verificado. Alta transaccional con `ON
 ## Preguntas y riesgos
 
 Configuración Google, cliente OAuth, callbacks y verificación real del proveedor dependen del entorno y no están probados por dobles. `/join/:publicCode` y `/auth/callback` pertenecen al frontend reservado: tras autenticar, el cliente conserva el código público, completa POST /profiles y posteriormente usa la inscripción implementada por PROGRAMS-001. Membresías, tarjetas y personal se documentan en sus respectivas specs.
+
+## Refinamiento de calidad — 2026-10-18
+
+- AC-002/AC-003: integración comprueba en PostgreSQL dos sujetos distintos con
+  igual correo, repetición que conserva los datos originales, borrado explícito
+  de teléfono y edición de sujeto ausente sin crear filas ni alterar otro perfil.
+- AC-004/AC-006: fixtures propios por caso; perfiles suspendidos y cerrados
+  conservan todos sus campos. Una suspensión sin commit bloquea un PATCH real;
+  la prueba observa contención en `pg_stat_activity`, confirma la suspensión y
+  comprueba que el PATCH pendiente no cambia datos ni fecha.
+- AC-005: el doble HTTP permanece pendiente hasta que la señal de timeout aborta
+  la petición. Se verifica 503 y mensaje público sin detalles privados, además
+  de JSON nulo/array, correo con NUL y fecha de confirmación malformada.
+- Independencia E2E: se demostró RED al ejecutar únicamente `actualiza campos`
+  (404 frente a 200), porque dependía del alta realizada por otra prueba.
+  Cada caso tiene ahora un sujeto nuevo y crea sus precondiciones; las consultas
+  de comprobación filtran por ese sujeto. El PATCH cambia realmente el teléfono
+  y comprueba que un rechazo posterior no altera nombre ni teléfono.
+- Validación focal inicial: integración identidad/personal 19/19 y adaptador
+  de identidad 19/19. La validación agregada al cierre registra el resultado
+  definitivo. E2E de identidad: 4/4 con `--sequence.shuffle --sequence.seed=42`
+  después de corregir fixtures; `npm run typecheck` satisfactorio. No se cambia
+  comportamiento de aplicación ni se acredita OAuth real.

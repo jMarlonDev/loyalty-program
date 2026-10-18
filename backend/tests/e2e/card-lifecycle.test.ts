@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { type ServerType, serve } from '@hono/node-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app.js';
 import { AppError } from '../../src/application/errors.js';
 import { createTestDatabase, type TestDatabase } from '../helpers/database.js';
+import { type ServerType, serve } from '../helpers/http-server.js';
 
 describe('BACKEND-001 ciclo completo HTTP + PostgreSQL', () => {
   let database: TestDatabase;
@@ -121,6 +121,14 @@ describe('BACKEND-001 ciclo completo HTTP + PostgreSQL', () => {
     const program = (
       await call('owner', 'POST', `${base}/programs`, programInput, 201)
     ).data;
+    const programPage = await call('owner', 'GET', `${base}/programs?limit=1`);
+    expect(programPage.data.map((row: { id: string }) => row.id)).toEqual([
+      program.id,
+    ]);
+    expect(programPage.next_cursor).toBeNull();
+    expect(
+      (await call('owner', 'GET', `${base}/programs/${program.id}`)).data.id,
+    ).toBe(program.id);
     const publicProgram = (
       await call(null, 'GET', `/public/programs/${program.public_code}`)
     ).data;
@@ -152,7 +160,53 @@ describe('BACKEND-001 ciclo completo HTTP + PostgreSQL', () => {
       409,
     );
     await call('stranger', 'GET', `/me/cards/${card.id}`, undefined, 404);
-    const qr = (await call('customer', 'GET', `/me/cards/${card.id}/qr`)).data;
+    const cardPage = await call('customer', 'GET', '/me/cards?limit=1');
+    expect(cardPage.data.map((row: { id: string }) => row.id)).toEqual([
+      card.id,
+    ]);
+    expect(cardPage.next_cursor).toBeNull();
+    expect(
+      (await call('customer', 'GET', `/me/cards/${card.id}`)).data.id,
+    ).toBe(card.id);
+    expect((await call('stranger', 'GET', '/me/cards')).data).toEqual([]);
+    const originalQr = (
+      await call('customer', 'GET', `/me/cards/${card.id}/qr`)
+    ).data;
+    await call('stranger', 'POST', `/me/cards/${card.id}/qr/rotate`, {}, 404);
+    const rotationKey = randomUUID();
+    const qr = (
+      await call(
+        'customer',
+        'POST',
+        `/me/cards/${card.id}/qr/rotate`,
+        {},
+        200,
+        rotationKey,
+      )
+    ).data;
+    expect(qr.token).not.toBe(originalQr.token);
+    expect(
+      (
+        await call(
+          'customer',
+          'POST',
+          `/me/cards/${card.id}/qr/rotate`,
+          {},
+          200,
+          rotationKey,
+        )
+      ).data,
+    ).toEqual(qr);
+    expect(
+      (await call('customer', 'GET', `/me/cards/${card.id}/qr`)).data,
+    ).toEqual(qr);
+    await call(
+      'employee',
+      'POST',
+      `${base}/cards/resolve`,
+      { token: originalQr.token },
+      404,
+    );
     await call('employee', 'POST', `${base}/cards/resolve`, {
       token: qr.token,
     });
@@ -198,6 +252,25 @@ describe('BACKEND-001 ciclo completo HTTP + PostgreSQL', () => {
       `${base}/purchases`,
       { ...purchaseInput, sale_reference: 'sale-2' },
       201,
+    );
+    const movements = await call(
+      'customer',
+      'GET',
+      `/me/cards/${card.id}/movements?limit=100`,
+    );
+    expect(movements.data).toHaveLength(3);
+    expect(
+      movements.data.reduce(
+        (sum: number, row: { stamp_delta: number }) => sum + row.stamp_delta,
+        0,
+      ),
+    ).toBe(0);
+    await call(
+      'stranger',
+      'GET',
+      `/me/cards/${card.id}/movements`,
+      undefined,
+      404,
     );
     const rewards = (
       await call('customer', 'GET', `/me/cards/${card.id}/rewards`)
@@ -246,6 +319,34 @@ describe('BACKEND-001 ciclo completo HTTP + PostgreSQL', () => {
       await call('customer', 'GET', `/me/cards/${card.id}/closure-preview`)
     ).data;
     expect(preview.rewards).toHaveLength(1);
+    const revoked = (
+      await call(
+        'customer',
+        'POST',
+        `/me/cards/${card.id}/closure-consents`,
+        {
+          benefits_version: preview.benefits_version,
+          accepted: true,
+        },
+        201,
+      )
+    ).data;
+    await call(
+      'customer',
+      'DELETE',
+      `/me/cards/${card.id}/closure-consents/${revoked.id}`,
+    );
+    await call(
+      'employee',
+      'POST',
+      `${base}/cards/${card.id}/close`,
+      { consent_id: revoked.id },
+      409,
+    );
+    expect(
+      (await call('customer', 'GET', `/me/cards/${card.id}/closure-preview`))
+        .data,
+    ).toEqual(preview);
     const consent = (
       await call(
         'customer',

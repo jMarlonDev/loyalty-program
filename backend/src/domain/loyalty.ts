@@ -27,7 +27,7 @@ export function loyaltyUuid(value: unknown): string {
       400,
       'Se requiere UUID válido.',
     );
-  return value;
+  return value.toLowerCase();
 }
 export type LoyaltyInputKind =
   | 'purchase'
@@ -44,7 +44,7 @@ export function validateLoyaltyInput(
   };
   if (!input || typeof input !== 'object' || Array.isArray(input))
     return fail();
-  const body = input as Record<string, unknown>;
+  const body = { ...(input as Record<string, unknown>) };
   if (
     Object.values(body).some(
       (value) => typeof value === 'string' && value.includes('\u0000'),
@@ -63,7 +63,8 @@ export function validateLoyaltyInput(
     Object.keys(body).some((key) => !keys.includes(key))
   )
     return fail();
-  for (const key of keys) if (key.endsWith('_id')) loyaltyUuid(body[key]);
+  for (const key of keys)
+    if (key.endsWith('_id')) body[key] = loyaltyUuid(body[key]);
   if (
     kind === 'purchase' &&
     (typeof body.sale_reference !== 'string' ||

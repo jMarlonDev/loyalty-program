@@ -216,6 +216,26 @@ const schemas: Record<string, Schema> = {
     status: enumeration('active', 'blocked'),
     created_at: date,
   }),
+  ProgramResults: object({
+    customers: { type: 'integer', minimum: 0 },
+    active_cards: { type: 'integer', minimum: 0 },
+    purchases: { type: 'integer', minimum: 0 },
+    available_rewards: { type: 'integer', minimum: 0 },
+    redeemed_rewards: { type: 'integer', minimum: 0 },
+  }),
+  ProgramCustomer: object({
+    id: uuid,
+    user_id: uuid,
+    full_name: text(),
+    email,
+    status: membershipStatus,
+    joined_at: date,
+    card_id: nullable(uuid),
+    balance: { type: 'integer' },
+    purchases: { type: 'integer' },
+    available_rewards: { type: 'integer' },
+    redeemed_rewards: { type: 'integer' },
+  }),
   CardDetail: object({
     id: uuid,
     membership_id: uuid,
@@ -226,6 +246,13 @@ const schemas: Record<string, Schema> = {
     membership_status: membershipStatus,
     restaurant_id: uuid,
     program_name: text(),
+    stamps_required: programFields.stamps_required,
+    reward_description: programFields.reward_description,
+    logo_url: programFields.logo_url,
+    background_color: programFields.background_color,
+    text_color: programFields.text_color,
+    card_message: programFields.card_message,
+    public_code: text(),
     balance: { type: 'integer', minimum: 0 },
   }),
   Enrollment: object({ membership: ref('Membership'), card: ref('Card') }),
@@ -332,6 +359,23 @@ schemas.InvitationCreated = object(
   },
   [...((schemas.Invitation?.required ?? []) as string[]), 'token'],
 );
+schemas.RestaurantWithRole = object({
+  ...((schemas.Restaurant?.properties ?? {}) as Record<string, Schema>),
+  actor_role: enumeration('owner', 'admin', 'employee'),
+});
+schemas.ResolvedCard = object({
+  ...((schemas.CardDetail?.properties ?? {}) as Record<string, Schema>),
+  customer_name: text(),
+  customer_email: email,
+  available_rewards: array(
+    object({ id: uuid, description: text(), status: enumeration('available') }),
+  ),
+});
+schemas.EmployeeDirectory = object({
+  ...((schemas.Employee?.properties ?? {}) as Record<string, Schema>),
+  full_name: text(),
+  email,
+});
 const id = 'dd4092e0-1951-47e0-af5c-bc0dbb94eaf8',
   otherId = '16171e51-2162-420a-a5c5-0b3eb0817ad8',
   at = '2026-10-18T12:00:00.000Z';
@@ -659,7 +703,7 @@ operation(
   '/api/v1/restaurants',
   'listRestaurants',
   'Lista restaurantes con pertenencia activa',
-  { output: 'Restaurant', list: true },
+  { output: 'RestaurantWithRole', list: true },
 );
 operation(
   'get',
@@ -706,7 +750,7 @@ operation(
   '/api/v1/restaurants/{restaurantId}/employees',
   'listEmployees',
   'Owner/Admin consulta personal',
-  { output: 'Employee', list: true },
+  { output: 'EmployeeDirectory', list: true },
 );
 operation(
   'patch',
@@ -768,6 +812,20 @@ operation(
   'getProgram',
   'Owner/Admin consulta programa',
   { output: 'Program' },
+);
+operation(
+  'get',
+  '/api/v1/restaurants/{id}/programs/{programId}/results',
+  'programResults',
+  'Owner/Admin consulta resultados reales sin importes financieros',
+  { output: 'ProgramResults' },
+);
+operation(
+  'get',
+  '/api/v1/restaurants/{id}/programs/{programId}/customers',
+  'programCustomers',
+  'Owner/Admin consulta inscripciones paginadas con saldo del libro',
+  { output: 'ProgramCustomer', list: true },
 );
 operation(
   'patch',
@@ -846,7 +904,7 @@ operation(
   '/api/v1/restaurants/{id}/cards/resolve',
   'resolveCard',
   'Personal activo resuelve token de su restaurante',
-  { input: 'TokenInput', output: 'CardDetail' },
+  { input: 'TokenInput', output: 'ResolvedCard' },
 );
 operation(
   'post',

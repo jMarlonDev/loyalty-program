@@ -1,8 +1,7 @@
-import { Hono } from 'hono';
 import { AppError } from '../../application/errors.js';
 import type { IdentityService } from '../../application/identity.js';
 import type { ProgramService } from '../../application/programs.js';
-import type { AppEnv } from './base-app.js';
+import { NativeRoutes } from './native-routes.js';
 
 export function createProgramRoutes({
   identityService,
@@ -11,7 +10,7 @@ export function createProgramRoutes({
   identityService: IdentityService;
   programService: ProgramService;
 }) {
-  const app = new Hono<AppEnv>();
+  const app = new NativeRoutes();
   const actor = async (header: string | undefined) => {
     const identity = await identityService.authenticate(header);
     await identityService.getMe(identity);
@@ -72,6 +71,25 @@ export function createProgramRoutes({
         c.get('requestId'),
       ),
     }),
+  );
+  app.get('/restaurants/:id/programs/:programId/results', async (c) =>
+    c.json({
+      data: await programService.results(
+        await actor(c.req.header('Authorization')),
+        c.req.param('id'),
+        c.req.param('programId'),
+      ),
+    }),
+  );
+  app.get('/restaurants/:id/programs/:programId/customers', async (c) =>
+    c.json(
+      await programService.customers(
+        await actor(c.req.header('Authorization')),
+        c.req.param('id'),
+        c.req.param('programId'),
+        c.req.query(),
+      ),
+    ),
   );
   app.get('/public/programs/:code', async (c) =>
     c.json({ data: await programService.publicByCode(c.req.param('code')) }),

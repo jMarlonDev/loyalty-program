@@ -21,6 +21,7 @@ const notFound = () => new AppError(404, 'NOT_FOUND', 'No existe el recurso.');
 const conflict = (message: string) => new AppError(409, 'CONFLICT', message);
 const cardSelect = `SELECT c.id,c.membership_id,c.status,c.created_at,m.user_id,m.program_id,
  m.status AS membership_status,p.restaurant_id,p.name AS program_name,
+ p.stamps_required,p.reward_description,p.logo_url,p.background_color,p.text_color,p.card_message,p.public_code,
  COALESCE((SELECT sum(stamp_delta) FROM loyalty_ledger_entries WHERE membership_id=m.id),0)::int AS balance
  FROM loyalty_cards c JOIN memberships m ON m.id=c.membership_id JOIN loyalty_programs p ON p.id=m.program_id`;
 function pageResult(rows: ProgramRecord[], page: PageInput): ProgramPage {
@@ -372,6 +373,51 @@ export class PgProgramRepository implements ProgramRepository {
     }
     return row as ProgramRecord;
   }
+  async results(
+    actor: string,
+    restaurant: string,
+    program: string,
+  ): Promise<ProgramRecord> {
+    return withTransaction(this.pool, async (client) => {
+      await this.staff(client, actor, restaurant);
+      await this.program(client, restaurant, program);
+      return (
+        await client.query(
+          `WITH members AS (SELECT id,user_id,status FROM memberships WHERE program_id=$1)
+        SELECT (SELECT count(DISTINCT user_id)::int FROM members) AS customers,
+        (SELECT count(*)::int FROM loyalty_cards c JOIN members m ON m.id=c.membership_id WHERE c.status='active' AND m.status='active') AS active_cards,
+        (SELECT count(*)::int FROM purchases p JOIN members m ON m.id=p.membership_id WHERE p.reversed_at IS NULL) AS purchases,
+        (SELECT count(*)::int FROM rewards r JOIN members m ON m.id=r.membership_id WHERE r.status='available') AS available_rewards,
+        (SELECT count(*)::int FROM rewards r JOIN members m ON m.id=r.membership_id WHERE r.status='redeemed') AS redeemed_rewards`,
+          [program],
+        )
+      ).rows[0];
+    });
+  }
+  async customers(
+    actor: string,
+    restaurant: string,
+    program: string,
+    page: PageInput,
+  ): Promise<ProgramPage> {
+    return withTransaction(this.pool, async (client) => {
+      await this.staff(client, actor, restaurant);
+      await this.program(client, restaurant, program);
+      const rows = (
+        await client.query(
+          `SELECT m.id,m.user_id,u.full_name,u.email,m.status,m.joined_at,c.id AS card_id,
+        COALESCE((SELECT sum(stamp_delta) FROM loyalty_ledger_entries WHERE membership_id=m.id),0)::int AS balance,
+        (SELECT count(*)::int FROM purchases WHERE membership_id=m.id AND reversed_at IS NULL) AS purchases,
+        (SELECT count(*)::int FROM rewards WHERE membership_id=m.id AND status='available') AS available_rewards,
+        (SELECT count(*)::int FROM rewards WHERE membership_id=m.id AND status='redeemed') AS redeemed_rewards
+        FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN loyalty_cards c ON c.membership_id=m.id
+        WHERE m.program_id=$1 AND ($2::uuid IS NULL OR m.id>$2) ORDER BY m.id LIMIT $3`,
+          [program, page.cursor, page.limit + 1],
+        )
+      ).rows;
+      return pageResult(rows, page);
+    });
+  }
   async listCards(actor: string, page: PageInput): Promise<ProgramPage> {
     return withTransaction(this.pool, async (client) => {
       await lockActor(client, actor);
@@ -472,7 +518,23 @@ export class PgProgramRepository implements ProgramRepository {
         )
       ).rows[0];
       if (!row) throw notFound();
-      return row;
+      const customer = (
+        await client.query('SELECT full_name,email FROM users WHERE id=$1', [
+          row.user_id,
+        ])
+      ).rows[0];
+      const rewards = (
+        await client.query(
+          "SELECT id,description,status FROM rewards WHERE membership_id=$1 AND status='available' ORDER BY earned_at,id",
+          [row.membership_id],
+        )
+      ).rows;
+      return {
+        ...row,
+        customer_name: customer.full_name,
+        customer_email: customer.email,
+        available_rewards: rewards,
+      };
     });
   }
 }

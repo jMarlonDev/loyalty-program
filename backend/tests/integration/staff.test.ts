@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   createStaffService,
   type StaffAction,
@@ -10,6 +10,9 @@ import { createTestDatabase, type TestDatabase } from '../helpers/database.js';
 
 let database: TestDatabase;
 let date = new Date('2026-10-18T12:00:00Z');
+beforeEach(() => {
+  date = new Date('2026-10-18T12:00:00Z');
+});
 let service: ReturnType<typeof createStaffService>;
 beforeAll(async () => {
   database = await createTestDatabase();
@@ -87,6 +90,302 @@ function execute(
 }
 
 describe('STAFF-001 PostgreSQL transactions and permissions', () => {
+  it('STACK-001 AC-009 identifies staff in an admin-only tenant-scoped directory', async () => {
+    const f = await fixture();
+    for (const who of [f.owner, f.admin]) {
+      const result = await service.query({
+        actor: who,
+        collection: 'employees',
+        restaurantId: f.restaurantId,
+      });
+      expect(result.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            user_id: f.employee.id,
+            full_name: 'Test User',
+            email: f.employee.email,
+            role: 'employee',
+          }),
+          expect.objectContaining({
+            user_id: f.owner.id,
+            full_name: 'Test User',
+            email: f.owner.email,
+            role: 'owner',
+          }),
+        ]),
+      );
+    }
+    await expect(
+      service.query({
+        actor: f.employee,
+        collection: 'employees',
+        restaurantId: f.restaurantId,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      service.query({
+        actor: await actor(),
+        collection: 'employees',
+        restaurantId: f.restaurantId,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('STACK-001 AC-007 exposes only the authenticated active restaurant role', async () => {
+    const f = await fixture();
+    for (const [identity, role] of [
+      [f.owner, 'owner'],
+      [f.admin, 'admin'],
+      [f.employee, 'employee'],
+    ] as const) {
+      const result = await service.query({
+        actor: identity,
+        collection: 'restaurants',
+      });
+      expect(result.data).toEqual([
+        expect.objectContaining({ id: f.restaurantId, actor_role: role }),
+      ]);
+    }
+    const outsider = await actor();
+    expect(
+      (await service.query({ actor: outsider, collection: 'restaurants' }))
+        .data,
+    ).toEqual([]);
+    await database.pool.query(
+      "UPDATE restaurant_employees SET status='disabled' WHERE user_id=$1",
+      [f.employee.id],
+    );
+    expect(
+      (await service.query({ actor: f.employee, collection: 'restaurants' }))
+        .data,
+    ).toEqual([]);
+  });
+
+  it('AC-007 revierte aceptación completa si falla auditoría y permite reintento con la misma clave', async () => {
+    const f = await fixture();
+    const receiver = await actor();
+    const invitation = (
+      await execute(
+        f.owner,
+        'invitation.create',
+        {
+          email: receiver.email,
+          role: 'employee',
+        },
+        f.restaurantId,
+      )
+    ).data as { id: string; token: string };
+    const key = randomUUID();
+    // Fault injection in the isolated database, after membership/invitation writes.
+    await database.pool.query(`ALTER TABLE audit_events ADD CONSTRAINT test_reject_acceptance
+      CHECK (actor_id <> '${receiver.id}'::uuid) NOT VALID`);
+    try {
+      await expect(
+        execute(
+          receiver,
+          'invitation.accept',
+          { token: invitation.token },
+          undefined,
+          undefined,
+          key,
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+      expect(
+        (
+          await database.pool.query(
+            'SELECT status,accepted_by FROM invitations WHERE id=$1',
+            [invitation.id],
+          )
+        ).rows,
+      ).toEqual([{ status: 'pending', accepted_by: null }]);
+      for (const table of [
+        'restaurant_employees',
+        'audit_events',
+        'idempotency_records',
+      ]) {
+        const column =
+          table === 'restaurant_employees' ? 'user_id' : 'actor_id';
+        expect(
+          (
+            await database.pool.query(
+              `SELECT id FROM ${table} WHERE ${column}=$1`,
+              [receiver.id],
+            )
+          ).rowCount,
+        ).toBe(0);
+      }
+    } finally {
+      await database.pool.query(
+        'ALTER TABLE audit_events DROP CONSTRAINT test_reject_acceptance',
+      );
+    }
+    const accepted = await execute(
+      receiver,
+      'invitation.accept',
+      { token: invitation.token },
+      undefined,
+      undefined,
+      key,
+    );
+    expect(accepted).toMatchObject({
+      data: {
+        user_id: receiver.id,
+        restaurant_id: f.restaurantId,
+        status: 'active',
+      },
+    });
+    expect(
+      (
+        await database.pool.query(
+          'SELECT action,request_id FROM audit_events WHERE actor_id=$1',
+          [receiver.id],
+        )
+      ).rows,
+    ).toEqual([{ action: 'invitation.accept', request_id: 'staff-tests' }]);
+    expect(
+      (
+        await database.pool.query(
+          'SELECT key FROM idempotency_records WHERE actor_id=$1',
+          [receiver.id],
+        )
+      ).rows,
+    ).toEqual([{ key }]);
+  });
+
+  it('AC-002 rechaza IDs de sucursal, empleado e invitación de otro restaurante sin efectos', async () => {
+    const own = await fixture();
+    const other = await fixture();
+    const location = (
+      await execute(
+        other.owner,
+        'location.create',
+        {
+          name: 'Foreign',
+          address: 'Street',
+          city: 'City',
+          department: 'State',
+        },
+        other.restaurantId,
+      )
+    ).data as { id: string };
+    const invitation = (
+      await execute(
+        other.owner,
+        'invitation.create',
+        {
+          email: own.employee.email,
+          role: 'employee',
+        },
+        other.restaurantId,
+      )
+    ).data as { id: string };
+    for (const [action, input, target] of [
+      ['location.update', { name: 'Forbidden' }, location.id],
+      ['employee.update', { status: 'disabled' }, other.employeeIds[2]],
+      ['invitation.revoke', {}, invitation.id],
+    ] as const) {
+      await expect(
+        execute(own.owner, action, input, own.restaurantId, target),
+      ).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
+    }
+    expect(
+      (
+        await database.pool.query('SELECT name FROM locations WHERE id=$1', [
+          location.id,
+        ])
+      ).rows,
+    ).toEqual([{ name: 'Foreign' }]);
+    expect(
+      (
+        await database.pool.query(
+          'SELECT status FROM restaurant_employees WHERE id=$1',
+          [other.employeeIds[2]],
+        )
+      ).rows,
+    ).toEqual([{ status: 'active' }]);
+    expect(
+      (
+        await database.pool.query(
+          'SELECT status FROM invitations WHERE id=$1',
+          [invitation.id],
+        )
+      ).rows,
+    ).toEqual([{ status: 'pending' }]);
+    expect(
+      (
+        await database.pool.query(
+          'SELECT id FROM audit_events WHERE actor_id=$1',
+          [own.owner.id],
+        )
+      ).rowCount,
+    ).toBe(0);
+    expect(
+      (
+        await database.pool.query(
+          'SELECT id FROM idempotency_records WHERE actor_id=$1',
+          [own.owner.id],
+        )
+      ).rowCount,
+    ).toBe(0);
+  });
+
+  it('AC-004 rechaza destinatario incorrecto y correo sin verificar sin consumir invitación', async () => {
+    const f = await fixture();
+    const receiver = await actor();
+    const stranger = await actor();
+    const invitation = (
+      await execute(
+        f.owner,
+        'invitation.create',
+        {
+          email: receiver.email,
+          role: 'employee',
+        },
+        f.restaurantId,
+      )
+    ).data as { id: string; token: string };
+    for (const who of [stranger, { ...receiver, emailVerified: false }]) {
+      await expect(
+        execute(who, 'invitation.accept', { token: invitation.token }),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(
+        (
+          await database.pool.query(
+            'SELECT id FROM restaurant_employees WHERE user_id=$1',
+            [who.id],
+          )
+        ).rowCount,
+      ).toBe(0);
+      expect(
+        (
+          await database.pool.query(
+            'SELECT id FROM idempotency_records WHERE actor_id=$1',
+            [who.id],
+          )
+        ).rowCount,
+      ).toBe(0);
+      expect(
+        (
+          await database.pool.query(
+            'SELECT id FROM audit_events WHERE actor_id=$1',
+            [who.id],
+          )
+        ).rowCount,
+      ).toBe(0);
+    }
+    expect(
+      (
+        await database.pool.query(
+          'SELECT status,accepted_by FROM invitations WHERE id=$1',
+          [invitation.id],
+        )
+      ).rows,
+    ).toEqual([{ status: 'pending', accepted_by: null }]);
+    expect(
+      await execute(receiver, 'invitation.accept', { token: invitation.token }),
+    ).toMatchObject({ data: { user_id: receiver.id, status: 'active' } });
+  });
+
   it('AC-007 concurrent acceptance does not duplicate staff and replay cannot reactivate disabled membership', async () => {
     const f = await fixture();
     const receiver = await actor();
@@ -379,11 +678,14 @@ describe('STAFF-001 PostgreSQL transactions and permissions', () => {
   it('AC-004 invites by verified email, stores only hashed/encrypted token and accepts once', async () => {
     const f = await fixture();
     const receiver = await actor();
+    const key = randomUUID();
     const invitation = await execute(
       f.admin,
       'invitation.create',
       { email: receiver.email.toUpperCase(), role: 'employee' },
       f.restaurantId,
+      undefined,
+      key,
     );
     const data = invitation.data as {
       id: string;
@@ -391,6 +693,36 @@ describe('STAFF-001 PostgreSQL transactions and permissions', () => {
       expires_at: string;
     };
     expect(data.token).toHaveLength(43);
+    expect(data).not.toHaveProperty('token_hash');
+    expect(data).not.toHaveProperty('token_encrypted');
+    const replay = await execute(
+      f.admin,
+      'invitation.create',
+      {
+        email: receiver.email.toUpperCase(),
+        role: 'employee',
+      },
+      f.restaurantId,
+      undefined,
+      key,
+    );
+    expect(replay).toEqual(invitation);
+    const storedReplay = await database.pool.query(
+      'SELECT result FROM idempotency_records WHERE actor_id=$1 AND key=$2',
+      [f.admin.id, key],
+    );
+    expect(storedReplay.rows).toHaveLength(1);
+    expect(storedReplay.rows[0].result.data.token_encrypted).toEqual(
+      expect.any(String),
+    );
+    expect(JSON.stringify(storedReplay.rows)).not.toContain(data.token);
+    const audit = await database.pool.query(
+      'SELECT action,details FROM audit_events WHERE restaurant_id=$1',
+      [f.restaurantId],
+    );
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0].action).toBe('invitation.create');
+    expect(JSON.stringify(audit.rows)).not.toContain(data.token);
     expect(new Date(data.expires_at).getTime() - date.getTime()).toBe(
       7 * 86400000,
     );

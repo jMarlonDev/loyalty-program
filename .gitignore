@@ -3,6 +3,14 @@ node_modules/
 dist/
 build/
 coverage/
+.output/
+.nitro/
+.tanstack/
+src/routeTree.gen.ts
+test-results/
+playwright-report/
+.impeccable/config.local.json
+.impeccable/cache/
 .cache/
 *.log
 

@@ -64,4 +64,9 @@ describe('PROGRAMS-001 inputs', () => {
     expect(() => requireUuid('bad')).toThrow();
     expect(() => requireEmptyBody({ actor_id: 'bad' })).toThrow();
   });
+  it('AC-001/004 canonicalizes equivalent UUID routes and cursors', () => {
+    const upper = 'ABCDEF01-2345-4678-ABCD-0123456789AB';
+    expect(requireUuid(upper)).toBe(upper.toLowerCase());
+    expect(parsePage({ cursor: upper }).cursor).toBe(upper.toLowerCase());
+  });
 });
