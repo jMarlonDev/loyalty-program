@@ -19,7 +19,7 @@ La aplicación, sus dependencias, el transporte y las pruebas se integran juntos
 - No se cambió código funcional durante esta preparación. Se usa evidencia de la tarea inmediatamente anterior: 132 UI/servidor, 227 backend de unidad/tooling y 10 recorridos de producción correctos; build/tipos/análisis correctos. No se presentan como nuevas ejecuciones.
 - Se aclararon cifras históricas y comandos de instalación en la documentación; no se reescribió evidencia histórica. La revisión backend completa/cobertura anterior fue 409 y 97,33 % de líneas.
 - No se aplicaron migraciones remotas, configuró Supabase ni publicó hosting. Google/SMTP reales, cámara física y URL HTTPS siguen pendientes. Publicar Git no despliega esta aplicación.
-- Resultado de publicación: se registra tras ejecutar push y verificar la referencia remota, en AGENTS y estado de desarrollo.
+- Resultado de publicación: cuatro commits creados y un quinto cierre documental. HTTPS falló por ausencia de credenciales y SSH por clave pública rechazada; el remoto continúa en 749ceaa. No hubo publicación. AGENTS y estado de desarrollo registran el resultado.
 
 ## Inventario por archivo
 
@@ -193,3 +193,15 @@ La aplicación, sus dependencias, el transporte y las pruebas se integran juntos
 | `vite.config.ts` | 2 | Integra Tailwind, Start, React y Nitro Node con cierre del pool. |
 | `vitest.config.ts` | 2 | Separa pruebas UI jsdom y servidor Node, sin cargar credenciales de desarrollo. |
 | `docs/commit-review-2026-10-18.md` | 4 | Inventario, agrupación, evidencias y límites de esta publicación. |
+
+## Commits creados y publicación pendiente
+
+| Commit | Contenido |
+| --- | --- |
+| a37075d | Rollback y descarte seguro de conexión |
+| e278208 | Aplicación fullstack, sesiones, móvil/QR y pruebas |
+| 56139be | CI, Docker, entorno y guías de despliegue |
+| 069906c | Arquitectura, informes e inventario por archivo |
+| Cierre (`git log -1`) | Resultado real de los intentos de publicación; documentación únicamente |
+
+GitHub no aceptó autenticación HTTPS/SSH. `git ls-remote origin refs/heads/main` siguió devolviendo `749ceaac0ce2d864c79f2aa6f801debcaf517e80`. Los commits permanecen locales; después de autenticar GitHub, publicar con `git push origin main`. No se solicitaron ni registraron tokens del usuario.

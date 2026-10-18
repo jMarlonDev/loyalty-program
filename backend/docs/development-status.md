@@ -4,7 +4,7 @@ Implementadas las correcciones de acceso móvil, tarjeta con permalink, escaneo 
 
 Verificación local de esta sesión: check con 131 pruebas UI/servidor, 6 tooling y 221 unit backend; regresión adicional de segundo QR comprobada 6/6 y suite UI/servidor final 132/132; tipos y build finales correctos. La aceptación final de navegador pasó 10/10; detalle al cierre abajo. No se repitió cobertura ni toda la suite backend de integración. La revisión original de migración había completado 409 pruebas backend con cobertura 97,33 % líneas; esa cifra no incluye el frontend.
 
-Pendientes externos: URL HTTPS/hosting, conexión y migraciones remotas según destino, validación Google/SMTP reales y cámara física. `env:check -- --public` falla correctamente porque APP_ORIGIN es local; no acredita disponibilidad remota. Sin cambios de .env, Supabase, esquema, commit o push. [Guía Supabase/Google](../../docs/supabase-setup.md). Lo siguiente conserva historial y cifras previas.
+Pendientes externos: URL HTTPS/hosting, conexión y migraciones remotas según destino, validación Google/SMTP reales y cámara física. `env:check -- --public` falla correctamente porque APP_ORIGIN es local; no acredita disponibilidad remota. Sin cambios de .env, Supabase ni esquema. Commits locales preparados; publicación bloqueada por autenticación GitHub (resultado al cierre). [Guía Supabase/Google](../../docs/supabase-setup.md). Lo siguiente conserva historial y cifras previas.
 
 # Desarrollo por prioridades — 2026-10-18
 
@@ -72,3 +72,10 @@ Supabase consultado en READ ONLY: 11 tablas vacías, 16 FK, 13 CHECK y solo 0000
 - `env:check -- --public` rechaza localhost como corresponde; enlaces documentales y diff --check correctos. No se afirma OAuth/SMTP reales, cámara física ni publicación HTTPS. El usuario no tiene URL pública; pasos operativos en docs/deployment.md.
 
 Limpieza final verificada: Docker sin contenedores loyalty-test activos. Sin cambios remotos ni publicación.
+
+### Resultado de publicación — 2026-10-18
+
+- Creados los commits `a37075d` (rollback/pool), `e278208` (aplicación fullstack, móvil, sesión y pruebas), `56139be` (CI/despliegue) y `069906c` (documentación e inventario). El cierre documental de este resultado se añade como quinto commit; identificarlo con `git log -1`.
+- Push HTTPS rechazado por ausencia de credenciales de usuario; intento SSH rechazado por clave pública no aceptada. GitHub CLI no está instalado, no hay helper de credenciales ni tokens GitHub disponibles en el entorno. No se cambió autenticación, claves ni URL de origin. No fue rechazo de permisos del entorno: ambos intentos se ejecutaron.
+- `git ls-remote origin refs/heads/main` confirmó `749ceaac0ce2d864c79f2aa6f801debcaf517e80`: los nuevos commits NO están publicados. La rama local conserva el trabajo y la serie completa queda pendiente de `git push origin main` desde una sesión autenticada.
+- Revisión de 167 archivos iniciales más informe, sin secretos/artefactos incluidos; diff sin errores. Pruebas funcionales de la tarea anterior conservadas y citadas, sin nuevas ejecuciones innecesarias ni cambios funcionales. Sin cambios de Supabase, esquema o despliegue. Próximo paso requerido: autenticar GitHub en el equipo y publicar main; disponer de permisos de archivos no sustituye la autenticación del remoto.
