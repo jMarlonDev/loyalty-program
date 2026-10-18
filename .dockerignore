@@ -1,0 +1,17 @@
+**/node_modules
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+.git
+.codex
+.agents
+.impeccable
+.output
+.nitro
+.tanstack
+**/dist
+**/coverage
+test-results
+playwright-report
+**/*.log
