@@ -5,6 +5,8 @@
       "**",
       "!SistemaDeFidelizacion.json",
       "!drizzle",
+      "!dist",
+      "!coverage",
       "!package-lock.json"
     ]
   },
