@@ -39,13 +39,22 @@ export async function withTransaction<T>(
   work: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
+  let releaseError: Error | undefined;
   try {
     await client.query('BEGIN');
     const result = await work(client);
     await client.query('COMMIT');
     return result;
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      // A connection with unknown transaction state must leave the pool.
+      releaseError =
+        rollbackError instanceof Error
+          ? rollbackError
+          : new Error('Transaction rollback failed');
+    }
     if (
       error &&
       typeof error === 'object' &&
@@ -55,7 +64,7 @@ export async function withTransaction<T>(
       throw new AppError(409, 'CONFLICT', 'El registro ya existe.');
     throw error;
   } finally {
-    client.release();
+    client.release(releaseError);
   }
 }
 

@@ -18,6 +18,7 @@ Cada comando de negocio bloquea restaurante (`FOR UPDATE`) y perfil activo (`FOR
 
 - AC-001 — Canonicalización ignora orden de claves, distingue operación/contenido y rechaza claves inválidas.
 - AC-002 — Fallos revierten escrituras y liberan conexión; transacciones posteriores funcionan.
+  Si falla también el rollback, se conserva el error original y se descarta la conexión para impedir su reutilización en un estado transaccional desconocido.
 - AC-003 — Reintentos simultáneos realizan un solo efecto; conflicto no añade efectos.
 - AC-004 — Usuario suspendido/cerrado y restaurante inexistente se rechazan sin cambios; cada caso de uso aplica además su política.
 
@@ -31,3 +32,7 @@ Cada comando de negocio bloquea restaurante (`FOR UPDATE`) y perfil activo (`FOR
 ## Riesgos
 
 Los adaptadores de los módulos deben mantener un orden uniforme de bloqueos: restaurante, perfil y clave idempotente. Creación de restaurante bloquea perfil y clave, al no existir restaurante aún. No cargar credenciales de desarrollo en pruebas. No hay transacción distribuida con Supabase.
+
+## Revisión de calidad — 2026-10-18
+
+Dos regresiones unitarias fallaron porque un error durante ROLLBACK ocultaba el error original y devolvía la conexión al pool sin descartarla. La corrección conserva el error original (y la traducción segura de unicidad) y pasa el error de rollback a `release` para destruir esa conexión. GREEN: 13 pruebas unitarias del módulo. La integración usa fixtures independientes y prueba además reintento después de fallo sin consumir clave, separación de claves por actor y conflicto entre operaciones: cinco casos con PostgreSQL real. Los errores de transporte se inyectan mediante un doble; la atomicidad y la idempotencia se verifican en PostgreSQL.
