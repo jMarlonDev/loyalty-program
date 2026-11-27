@@ -2,7 +2,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Gift,
-  LogOut,
   QrCode,
   RefreshCw,
   ShieldCheck,
@@ -22,14 +21,19 @@ import {
   useCustomerResource,
   useCustomerSession,
 } from '../lib/api';
+import {
+  clearCardCache,
+  readCardCache,
+  saveCardCache,
+} from '../lib/card-cache';
 import { cardScanUrl, uuidPattern } from '../lib/card-qr';
 import { useAppOrigin } from '../lib/public-config';
 import { useCardEvents } from '../lib/realtime';
 import type { CardView } from '../lib/types';
-import { formatDate } from '../lib/utils';
 
 export function CustomerCardsPage() {
   const session = useCustomerSession();
+  const [closed, setClosed] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => {
     const restore = () => {
@@ -54,20 +58,6 @@ export function CustomerCardsPage() {
         <Brand />
         <nav aria-label="Mi cuenta">
           <a href="/app">Personal del restaurante</a>
-          {session.data && (
-            <button
-              type="button"
-              onClick={() =>
-                void fetch('/api/v1/customer/session', {
-                  method: 'DELETE',
-                  credentials: 'same-origin',
-                }).then(() => window.location.assign('/'))
-              }
-            >
-              <LogOut size={16} />
-              Olvidar este dispositivo
-            </button>
-          )}
         </nav>
       </header>
       <main id="main-content" className="workspace-content">
@@ -75,12 +65,31 @@ export function CustomerCardsPage() {
           error={session.error}
           retry={() => void session.refetch()}
         />
-        {session.isLoading ? (
+        {closed ? (
+          <Empty
+            title="Saliste del programa"
+            action={
+              <Button asChild>
+                <a href="/">
+                  Ir al inicio
+                  <ArrowRight size={17} />
+                </a>
+              </Button>
+            }
+          >
+            Cerramos tu tarjeta en este dispositivo. Puedes volver a unirte
+            escaneando el QR del restaurante.
+          </Empty>
+        ) : session.isLoading ? (
           <Loading label="Buscando tus tarjetas…" />
         ) : selected ? (
           <CustomerCardDetail
             cardId={selected}
             onBack={() => selectCard(null)}
+            onClosed={() => {
+              clearCardCache();
+              setClosed(true);
+            }}
           />
         ) : !session.data ? (
           <NoCustomerSession />
@@ -180,9 +189,11 @@ function CustomerCardList({
 function CustomerCardDetail({
   cardId,
   onBack,
+  onClosed,
 }: {
   cardId: string;
   onBack: () => void;
+  onClosed: () => void;
 }) {
   const card = useCustomerResource<CardView>(`/customer/cards/${cardId}`, {
     live: true,
@@ -192,9 +203,29 @@ function CustomerCardDetail({
   );
   const reissue = useCustomerAction<{ token: string; expires_at: string }>();
   const appOrigin = useAppOrigin();
+  const closeCard = useCustomerAction<{
+    stamps_lost: number;
+    rewards_lost: number;
+  }>();
   const [message, setMessage] = useState('');
+  const [leaving, setLeaving] = useState<'idle' | 'warn' | 'sure'>('idle');
+  const [cached] = useState(() => readCardCache(cardId));
   useCardEvents(cardId);
-  const current = card.data;
+  useEffect(() => {
+    if (card.data) saveCardCache(card.data);
+  }, [card.data]);
+  const current = card.data ?? cached ?? undefined;
+  const pendingRewards =
+    current?.rewards.filter((item) => item.status === 'available').length ?? 0;
+  async function leave() {
+    try {
+      await closeCard.mutateAsync({
+        path: `/customer/cards/${cardId}/close`,
+        body: { confirm: true },
+      });
+      onClosed();
+    } catch {}
+  }
   const cycle = current?.cycle ?? null;
   const reward = current?.rewards.find((item) => item.status === 'available');
   const scan =
@@ -229,7 +260,7 @@ function CustomerCardDetail({
         Mis tarjetas
       </Button>
       <ErrorNotice error={card.error} retry={() => void card.refetch()} />
-      {card.isLoading && <Loading />}
+      {card.isLoading && !current && <Loading />}
       {current && (
         <>
           <PageTitle
@@ -344,6 +375,60 @@ function CustomerCardDetail({
               )}
             </section>
           </div>
+          <section className="panel stack" aria-label="Salir del programa">
+            {leaving === 'idle' ? (
+              <Button variant="ghost" onClick={() => setLeaving('warn')}>
+                Salir del programa
+              </Button>
+            ) : (
+              <>
+                <h2>Salir del programa</h2>
+                <p className="notice" role="alert">
+                  Vas a perder tu tarjeta con {cycle?.stamps ?? 0} sellos.
+                  {pendingRewards > 0 &&
+                    ` Tienes ${pendingRewards} ${pendingRewards === 1 ? 'premio sin reclamar y lo vas' : 'premios sin reclamar y los vas'} a perder.`}
+                </p>
+                {leaving === 'warn' ? (
+                  <div className="button-row">
+                    <Button
+                      variant="secondary"
+                      onClick={() => setLeaving('sure')}
+                    >
+                      Continuar
+                    </Button>
+                    <Button variant="ghost" onClick={() => setLeaving('idle')}>
+                      Cancelar
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="field-hint">
+                      Esta acción no se puede deshacer. ¿Seguro que quieres
+                      salir?
+                    </p>
+                    <ErrorNotice error={closeCard.error} />
+                    <div className="button-row">
+                      <Button
+                        disabled={closeCard.isPending}
+                        onClick={() => void leave()}
+                      >
+                        {closeCard.isPending
+                          ? 'Saliendo…'
+                          : 'Sí, salir del programa'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={closeCard.isPending}
+                        onClick={() => setLeaving('idle')}
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </section>
         </>
       )}
     </>

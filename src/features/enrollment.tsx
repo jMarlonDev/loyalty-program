@@ -20,7 +20,8 @@ import {
   useResource,
 } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import type { CardView, Program } from '../lib/types';
+import { saveCardCache } from '../lib/card-cache';
+import type { EnrollmentResult, Program } from '../lib/types';
 
 const countries = [
   ['CO', 'Colombia (+57)'],
@@ -35,45 +36,74 @@ const countries = [
   ['BR', 'Brasil (+55)'],
 ] as const;
 
+function enrollmentError(error: unknown) {
+  if (error instanceof ApiError && error.code === 'CARD_ALREADY_ACTIVE')
+    return (
+      <div className="notice notice-error" role="alert">
+        <div>
+          <p>Este número ya tiene una tarjeta activa.</p>
+          <p className="field-hint">
+            Si cambiaste de celular, pide en el local que transfieran tu
+            tarjeta.
+          </p>
+        </div>
+      </div>
+    );
+  if (error instanceof ApiError && error.status === 429)
+    return (
+      <div className="notice notice-error" role="alert">
+        <p>Demasiados intentos. Intenta más tarde.</p>
+      </div>
+    );
+  return <ErrorNotice error={error} />;
+}
+
 export function EnrollmentPage({ code }: { code: string }) {
   const program = useResource<Program>(
     `/public/programs/${encodeURIComponent(code)}`,
   );
   const session = useCustomerSession();
-  const start = useCustomerAction<{
-    authenticated: boolean;
-    phone_masked: string;
-    card: CardView | null;
-  }>();
-  const enrollCard = useCustomerAction<CardView>();
+  const enroll = useCustomerAction<EnrollmentResult>();
+  const [step, setStep] = useState<'intro' | 'phone' | 'declined'>('intro');
   const [country, setCountry] = useState('CO');
   const [phone, setPhone] = useState('');
-  const [card, setCard] = useState<CardView | null>(null);
+  const [result, setResult] = useState<EnrollmentResult | null>(null);
+  const [failure, setFailure] = useState<unknown>(null);
   const autoOpened = useRef(false);
 
   useEffect(() => {
-    if (!session.data || autoOpened.current || enrollCard.isPending) return;
+    if (!session.data || autoOpened.current) return;
     autoOpened.current = true;
-    void enrollCard
+    enroll
       .mutateAsync({
         path: '/customer/enrollments',
         body: { public_code: code },
       })
-      .then(setCard);
-  }, [session.data, code, enrollCard]);
+      .then((value) => {
+        saveCardCache(value.card);
+        setResult(value);
+      })
+      .catch(setFailure);
+  }, [session.data, code, enroll]);
 
-  async function enroll(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
+    setFailure(null);
     try {
-      const result = await start.mutateAsync({
-        path: '/customer/session',
-        body: { phone, country, public_code: code },
+      const value = await enroll.mutateAsync({
+        path: '/customer/enrollments',
+        body: { public_code: code, phone, country },
       });
-      setCard(result.card);
-    } catch {
-      setCard(null);
+      saveCardCache(value.card);
+      setResult(value);
+    } catch (error) {
+      setResult(null);
+      setFailure(error);
     }
   }
+
+  const otherProgram = result?.existing && result.same_program === false;
+  const card = result?.card;
 
   return (
     <div className="public-page">
@@ -112,15 +142,31 @@ export function EnrollmentPage({ code }: { code: string }) {
                   <Check size={18} />
                   {program.data.reward_description}
                 </p>
-                <p>
-                  <Check size={18} />
-                  Tu tarjeta te acompaña en este y otros dispositivos
-                </p>
               </div>
               {card ? (
                 <div className="stack">
-                  <p className="notice notice-success" role="status">
-                    Tu tarjeta está lista. No recibiste sellos por inscribirte.
+                  {otherProgram ? (
+                    <p className="notice" role="status">
+                      Este dispositivo ya tiene una tarjeta activa en{' '}
+                      {card.program_name}.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="notice notice-success" role="status">
+                        {result?.existing
+                          ? 'Esta es tu tarjeta.'
+                          : 'Tu tarjeta está lista. No recibiste sellos por inscribirte.'}
+                      </p>
+                      {result?.notice && (
+                        <p className="notice" role="status">
+                          {result.notice}
+                        </p>
+                      )}
+                    </>
+                  )}
+                  <p className="field-hint">
+                    {card.cycle?.stamps ?? card.balance} de{' '}
+                    {card.cycle?.target ?? card.target} sellos.
                   </p>
                   <Button asChild>
                     <a href={`/cards?card=${encodeURIComponent(card.id)}`}>
@@ -128,64 +174,52 @@ export function EnrollmentPage({ code }: { code: string }) {
                       <ArrowRight size={17} />
                     </a>
                   </Button>
-                  {session.data && (
-                    <button
-                      type="button"
-                      className="text-link"
-                      onClick={() =>
-                        void enrollCard
-                          .mutateAsync({
-                            path: '/customer/session',
-                            method: 'DELETE',
-                          })
-                          .then(() => window.location.reload())
-                      }
-                    >
-                      Usar otro teléfono
-                    </button>
-                  )}
                 </div>
               ) : session.isLoading ? (
                 <Loading label="Buscando tu tarjeta…" />
               ) : session.data ? (
                 <div className="stack">
-                  <p className="field-hint">
-                    Ya te reconocemos como {session.data.phone_masked}. Abriendo
-                    tu tarjeta de este programa.
+                  <Loading label="Abriendo tu tarjeta…" />
+                  {failure != null && (
+                    <>
+                      {enrollmentError(failure)}
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          autoOpened.current = false;
+                          setFailure(null);
+                          void session.refetch();
+                        }}
+                      >
+                        Reintentar
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ) : step === 'declined' ? (
+                <div className="stack">
+                  <p className="notice" role="status">
+                    Sin problema. No creamos ninguna tarjeta. Puedes volver a
+                    escanear el QR cuando quieras.
                   </p>
-                  <ErrorNotice error={start.error} />
-                  <Button
-                    disabled={start.isPending}
-                    onClick={() =>
-                      void enrollCard
-                        .mutateAsync({
-                          path: '/customer/enrollments',
-                          body: { public_code: code },
-                        })
-                        .then(setCard)
-                    }
-                  >
-                    {start.isPending ? 'Abriendo…' : 'Abrir mi tarjeta'}
+                  <Button variant="secondary" onClick={() => setStep('intro')}>
+                    Quiero unirme
                   </Button>
-                  <button
-                    type="button"
-                    className="text-link"
-                    onClick={() =>
-                      void start
-                        .mutateAsync({
-                          path: '/customer/session',
-                          method: 'DELETE',
-                        })
-                        .then(() => window.location.reload())
-                    }
-                  >
-                    Usar otro teléfono
-                  </button>
+                </div>
+              ) : step === 'intro' ? (
+                <div className="stack">
+                  <p className="field-hint">
+                    Solo necesitas tu teléfono. Sin correo ni contraseña.
+                  </p>
+                  <Button onClick={() => setStep('phone')}>Unirme</Button>
+                  <Button variant="ghost" onClick={() => setStep('declined')}>
+                    Ahora no
+                  </Button>
                 </div>
               ) : (
                 <form
                   className="stack"
-                  onSubmit={(event) => void enroll(event)}
+                  onSubmit={(event) => void submit(event)}
                 >
                   <p className="field-hint">
                     Escribe tu teléfono. No necesitas correo ni contraseña.
@@ -220,17 +254,20 @@ export function EnrollmentPage({ code }: { code: string }) {
                       />
                     )}
                   </Field>
-                  <ErrorNotice error={start.error} />
-                  <Button disabled={start.isPending} type="submit">
+                  {failure != null && enrollmentError(failure)}
+                  <Button disabled={enroll.isPending} type="submit">
                     <Phone size={17} />
-                    {start.isPending
+                    {enroll.isPending
                       ? 'Creando tu tarjeta…'
                       : 'Obtener mi tarjeta'}
                   </Button>
-                  <p className="field-hint">
-                    Si ya tienes tarjeta con este número, la abriremos sin
-                    duplicarla.
-                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setStep('intro')}
+                  >
+                    Volver
+                  </Button>
                 </form>
               )}
             </section>

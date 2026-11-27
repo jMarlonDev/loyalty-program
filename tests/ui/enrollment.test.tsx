@@ -57,48 +57,108 @@ vi.mock('../../src/lib/api', () => ({
     data: undefined,
   }),
 }));
+const cardFixture = {
+  id: 'card-id',
+  program_name: 'Club',
+  balance: 0,
+  target: 8,
+  cycle: null,
+};
 beforeEach(() => {
   vi.clearAllMocks();
   state.user = { id: 'owner', email: 'owner@example.test' };
   state.session = null;
-  state.card = { id: 'card-id' };
   state.error = null;
   state.isSuccess = false;
   state.logout.mockResolvedValue(undefined);
-  state.customer.mockImplementation(async (input: { path: string }) =>
-    input.path === '/customer/session'
-      ? {
-          authenticated: true,
-          phone_masked: '••• 45 67',
-          card: state.card,
-        }
-      : state.card,
-  );
+  state.customer.mockResolvedValue({
+    existing: false,
+    reenrollment: false,
+    card: cardFixture,
+  });
 });
+async function openForm() {
+  fireEvent.click(screen.getByRole('button', { name: 'Unirme' }));
+  fireEvent.change(await screen.findByLabelText('Teléfono'), {
+    target: { value: '300 123 4567' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Obtener mi tarjeta' }));
+}
 describe('NEXT alta por teléfono sin cuenta', () => {
-  it('pide solo país y teléfono y crea la tarjeta en una sola operación', async () => {
+  it('muestra Unirme y Ahora no antes de pedir el teléfono', () => {
     render(<EnrollmentPage code="club" />);
+    expect(screen.getByRole('button', { name: 'Unirme' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Ahora no' })).toBeVisible();
+    expect(screen.queryByLabelText('Teléfono')).not.toBeInTheDocument();
+    expect(state.customer).not.toHaveBeenCalled();
+  });
+
+  it('Ahora no deja una pantalla neutra sin inscribir', () => {
+    render(<EnrollmentPage code="club" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ahora no' }));
+    expect(screen.getByText(/No creamos ninguna tarjeta/)).toBeVisible();
+    expect(state.customer).not.toHaveBeenCalled();
+  });
+
+  it('Unirme pide solo país y teléfono y crea la tarjeta', async () => {
+    render(<EnrollmentPage code="club" />);
+    await openForm();
     expect(screen.queryByLabelText(/correo/i)).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Teléfono'), {
-      target: { value: '300 123 4567' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Obtener mi tarjeta' }));
     await waitFor(() =>
       expect(state.customer).toHaveBeenCalledWith({
-        path: '/customer/session',
-        body: { phone: '300 123 4567', country: 'CO', public_code: 'club' },
+        path: '/customer/enrollments',
+        body: { public_code: 'club', phone: '300 123 4567', country: 'CO' },
       }),
     );
     expect(
-      screen.getByRole('link', { name: 'Ver mi tarjeta' }),
+      await screen.findByRole('link', { name: 'Ver mi tarjeta' }),
     ).toHaveAttribute('href', '/cards?card=card-id');
   });
 
-  it('con sesión válida recupera la misma tarjeta sin pedir identidad', async () => {
-    state.session = { phone_masked: '••• 45 67' };
+  it('muestra el aviso de reinscripción', async () => {
+    state.customer.mockResolvedValue({
+      existing: false,
+      reenrollment: true,
+      notice:
+        'Este número ya participó en el programa. Se creó una tarjeta nueva sin sellos.',
+      card: cardFixture,
+    });
     render(<EnrollmentPage code="club" />);
-    expect(await screen.findByText(/Ya te reconocemos/)).toBeVisible();
-    expect(screen.queryByLabelText('Teléfono')).not.toBeInTheDocument();
+    await openForm();
+    expect(
+      await screen.findByText(/ya participó en el programa/),
+    ).toBeVisible();
+  });
+
+  it('409 explica que ya hay tarjeta activa y cómo transferirla', async () => {
+    state.customer.mockRejectedValue(
+      new ApiError(409, 'CARD_ALREADY_ACTIVE', 'x'),
+    );
+    render(<EnrollmentPage code="club" />);
+    await openForm();
+    expect(
+      await screen.findByText('Este número ya tiene una tarjeta activa.'),
+    ).toBeVisible();
+    expect(screen.getByText(/transfieran tu tarjeta/)).toBeVisible();
+  });
+
+  it('429 avisa de demasiados intentos', async () => {
+    state.customer.mockRejectedValue(new ApiError(429, 'RATE_LIMITED', 'x'));
+    render(<EnrollmentPage code="club" />);
+    await openForm();
+    expect(
+      await screen.findByText('Demasiados intentos. Intenta más tarde.'),
+    ).toBeVisible();
+  });
+
+  it('con sesión recupera la misma tarjeta sin formulario ni botones', async () => {
+    state.session = { phone_masked: '••• 45 67' };
+    state.customer.mockResolvedValue({
+      existing: true,
+      same_program: true,
+      card: cardFixture,
+    });
+    render(<EnrollmentPage code="club" />);
     await waitFor(() =>
       expect(state.customer).toHaveBeenCalledWith({
         path: '/customer/enrollments',
@@ -108,19 +168,29 @@ describe('NEXT alta por teléfono sin cuenta', () => {
     expect(
       await screen.findByRole('link', { name: 'Ver mi tarjeta' }),
     ).toBeVisible();
+    expect(screen.queryByLabelText('Teléfono')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Unirme' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /otro teléfono/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it('permite olvidar el dispositivo sin borrar la tarjeta', async () => {
+  it('si la tarjeta es de otro programa lo explica y muestra esa tarjeta', async () => {
     state.session = { phone_masked: '••• 45 67' };
+    state.customer.mockResolvedValue({
+      existing: true,
+      same_program: false,
+      card: { ...cardFixture, program_name: 'Otro club' },
+    });
     render(<EnrollmentPage code="club" />);
-    await screen.findByRole('link', { name: 'Ver mi tarjeta' });
-    fireEvent.click(screen.getByRole('button', { name: 'Usar otro teléfono' }));
-    await waitFor(() =>
-      expect(state.customer).toHaveBeenCalledWith({
-        path: '/customer/session',
-        method: 'DELETE',
-      }),
-    );
+    expect(
+      await screen.findByText(
+        'Este dispositivo ya tiene una tarjeta activa en Otro club.',
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Ver mi tarjeta' })).toBeVisible();
   });
 });
 describe('FLOW-001 invitación privada al equipo', () => {

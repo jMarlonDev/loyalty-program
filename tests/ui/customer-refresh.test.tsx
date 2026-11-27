@@ -64,6 +64,7 @@ async function settle(ms = 50) {
   });
 }
 beforeEach(() => {
+  window.localStorage.clear();
   vi.useFakeTimers();
   focusManager.setFocused(true);
   state.stamps = 0;
@@ -74,6 +75,8 @@ beforeEach(() => {
         { error: { message: 'Conexión interrumpida' } },
         { status: 503 },
       );
+    if (path.endsWith('/close'))
+      return Response.json({ data: { stamps_lost: 3, rewards_lost: 1 } });
     if (path.endsWith('/customer/session'))
       return Response.json({
         data: {
@@ -99,6 +102,20 @@ afterEach(() => {
   focusManager.setFocused(undefined);
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+const rewardCard = () => ({
+  ...card(),
+  rewards: [
+    {
+      id: 'r1',
+      description: 'Un café',
+      status: 'available',
+      accounting_mode: 'debit_on_redemption',
+      earned_at: new Date().toISOString(),
+      voucher: { token: 'v'.repeat(43), expires_at: null },
+      whatsapp_url: null,
+    },
+  ],
 });
 function show() {
   render(
@@ -139,5 +156,63 @@ describe('FLOW-002 tarjeta abierta en otro dispositivo', () => {
     expect(screen.getAllByText('Conexión interrumpida').length).toBeGreaterThan(
       0,
     );
+  });
+  it('no ofrece cerrar sesión ni olvidar dispositivo', async () => {
+    show();
+    await settle();
+    expect(screen.queryByText(/olvidar este dispositivo/i)).toBeNull();
+    expect(screen.queryByText(/cerrar sesión/i)).toBeNull();
+  });
+  it('guarda cache sin token ni teléfono y pinta rápido', async () => {
+    state.stamps = 2;
+    show();
+    await settle();
+    const raw = window.localStorage.getItem('loyalty:last-card') ?? '';
+    expect(raw).toContain(cardId);
+    expect(raw).not.toContain('v'.repeat(43));
+    expect(raw).not.toContain('45 67');
+  });
+  it('salir exige doble confirmación y avisa de los premios que se pierden', async () => {
+    state.request.mockImplementation(async (path: string) => {
+      if (path.endsWith('/close'))
+        return Response.json({ data: { stamps_lost: 3, rewards_lost: 1 } });
+      if (path.endsWith('/customer/session'))
+        return Response.json({
+          data: { authenticated: true, phone_masked: '••• 45 67' },
+        });
+      if (path.endsWith('/qr'))
+        return Response.json({ data: { token: 'a'.repeat(43) } });
+      return Response.json({ data: rewardCard() });
+    });
+    show();
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Salir del programa' }));
+    expect(
+      screen.getByText(/Tienes 1 premio sin reclamar y lo vas a perder/),
+    ).toBeVisible();
+    expect(screen.getByText(/0 sellos/)).toBeVisible();
+    expect(
+      state.request.mock.calls.some(([path]) =>
+        String(path).endsWith('/close'),
+      ),
+    ).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect(
+      state.request.mock.calls.some(([path]) =>
+        String(path).endsWith('/close'),
+      ),
+    ).toBe(false);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Sí, salir del programa' }),
+    );
+    await settle();
+    expect(
+      screen.getByRole('heading', { name: 'Saliste del programa' }),
+    ).toBeVisible();
+    expect(window.localStorage.getItem('loyalty:last-card')).toBeNull();
+    const call = state.request.mock.calls.find(([path]) =>
+      String(path).endsWith('/close'),
+    );
+    expect(JSON.parse(call?.[1].body)).toEqual({ confirm: true });
   });
 });

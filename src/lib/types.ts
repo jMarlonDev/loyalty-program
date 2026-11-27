@@ -149,4 +149,55 @@ export interface OperatorEmployee {
   full_name: string;
   email: string;
   ended_at: string | null;
+  can_transfer_cards?: boolean;
+}
+
+export interface EnrollmentResult {
+  existing: boolean;
+  same_program?: boolean;
+  reenrollment?: boolean;
+  notice?: string | null;
+  card: CardView;
+}
+export interface AdminCardRow {
+  card_id: string;
+  membership_id: string;
+  program_name: string;
+  status: 'active' | 'closed';
+  joined_at: string;
+  closed_at: string | null;
+  is_reenrollment: boolean;
+  previous_cards_count: number;
+  phone_masked: string;
+  stamps: number;
+  pending_rewards: number;
+}
+export interface AdminCardDetail {
+  card_id: string;
+  program_name: string;
+  status: 'active' | 'closed';
+  phone: string;
+  phone_masked: string;
+  joined_at: string;
+  closed_at: string | null;
+  close_reason: string | null;
+  is_reenrollment: boolean;
+  previous_cards_count: number;
+  purchases: Array<{
+    id?: string;
+    created_at?: string;
+    reference?: string | null;
+  }>;
+  rewards: Array<{
+    id?: string;
+    description?: string;
+    status?: string;
+    earned_at?: string;
+  }>;
+  previous_cards: Array<{
+    card_id: string;
+    status: string;
+    joined_at: string;
+    closed_at: string | null;
+  }>;
 }

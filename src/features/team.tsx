@@ -50,6 +50,7 @@ export function TeamPanel({ restaurantId }: { restaurantId: string }) {
     whatsapp_url: string;
   } | null>(null);
   const [message, setMessage] = useState('');
+  const [permissions, setPermissions] = useState<Record<string, boolean>>({});
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -193,6 +194,36 @@ export function TeamPanel({ restaurantId }: { restaurantId: string }) {
                   {employee.status === 'active' ? 'Activo' : 'Inactivo'}
                 </span>
               </div>
+              {employee.status === 'active' && (
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={
+                      permissions[employee.id] ??
+                      employee.can_transfer_cards ??
+                      false
+                    }
+                    disabled={update.isPending}
+                    onChange={(event) => {
+                      const allowed = event.target.checked;
+                      void update
+                        .mutateAsync({
+                          path: `/restaurants/${restaurantId}/employees/${employee.id}/transfer-permission`,
+                          method: 'PATCH',
+                          body: { can_transfer_cards: allowed },
+                        })
+                        .then(() =>
+                          setPermissions((current) => ({
+                            ...current,
+                            [employee.id]: allowed,
+                          })),
+                        )
+                        .catch(() => {});
+                    }}
+                  />{' '}
+                  Puede transferir tarjetas
+                </label>
+              )}
               {employee.status === 'active' && (
                 <Button
                   variant="ghost"
