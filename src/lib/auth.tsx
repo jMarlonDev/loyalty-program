@@ -13,6 +13,7 @@ export interface AuthUser {
   id: string;
   email: string;
   full_name?: string;
+  must_change_password?: boolean;
 }
 interface SessionResult {
   user: AuthUser | null;

@@ -6,6 +6,7 @@ import {
   Outlet,
   Scripts,
 } from '@tanstack/react-router';
+import { ForcePasswordChange } from '@/features/force-password-change';
 import { AuthProvider } from '@/lib/auth';
 import '../styles.css';
 
@@ -58,7 +59,9 @@ function Root() {
             <a className="skip-link" href="#main-content">
               Saltar al contenido
             </a>
-            <Outlet />
+            <ForcePasswordChange>
+              <Outlet />
+            </ForcePasswordChange>
           </AuthProvider>
         </QueryClientProvider>
         <Scripts />

@@ -5,9 +5,11 @@ import { Brand, ErrorNotice, Field, Loading } from '../components/common';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useAuth } from '../lib/auth';
+import { useAuthProvider } from '../lib/auth-provider-kind';
 import { safeReturnTo } from './forms';
 export function AuthPage() {
   const auth = useAuth();
+  const local = useAuthProvider() === 'local';
   const [mode, setMode] = useState('login'),
     [next, setNext] = useState('/app'),
     [fixedDestination, setFixedDestination] = useState(false),
@@ -24,7 +26,8 @@ export function AuthPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setMode(
-      ['signup', 'recover', 'reset'].includes(params.get('mode') ?? '')
+      ['signup', 'recover', 'reset'].includes(params.get('mode') ?? '') &&
+        !(local && params.get('mode') !== 'signup')
         ? (params.get('mode') ?? 'login')
         : 'login',
     );
@@ -43,7 +46,7 @@ export function AuthPage() {
     };
     const callbackError = callbackErrors[params.get('error') ?? ''];
     if (callbackError) setError(new Error(callbackError));
-  }, []);
+  }, [local]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -66,7 +69,7 @@ export function AuthPage() {
           name,
           destination,
         );
-        if (result.confirmationRequired)
+        if (result.confirmationRequired && !local)
           setMessage(
             'Revisa tu correo y confirma tu cuenta en este navegador durante los próximos 10 minutos.',
           );
@@ -274,7 +277,7 @@ export function AuthPage() {
                   <ArrowRight size={17} />
                 </Button>
               </form>
-              {['login', 'signup'].includes(mode) && (
+              {['login', 'signup'].includes(mode) && !local && (
                 <>
                   <div className="divider-label">o continúa con</div>
                   <Button
@@ -290,16 +293,23 @@ export function AuthPage() {
               <div className="auth-links">
                 {mode === 'login' ? (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMode('recover');
-                        setError(null);
-                        setMessage('');
-                      }}
-                    >
-                      Olvidé mi contraseña
-                    </button>
+                    {local ? (
+                      <p>
+                        ¿Olvidaste tu contraseña? Pide al administrador que la
+                        restablezca.
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMode('recover');
+                          setError(null);
+                          setMessage('');
+                        }}
+                      >
+                        Olvidé mi contraseña
+                      </button>
+                    )}
                     <p>
                       ¿Primera vez?{' '}
                       <button
