@@ -224,6 +224,16 @@ const graph: Record<string, Record<string, unknown>> = {
     session_id: ids.customer_sessions,
     expires_at: now,
   },
+  staff_sessions: {
+    id: ids.staff_sessions,
+    user_id: ids.users,
+    access_hash: randomUUID(),
+    access_expires_at: now,
+    refresh_hash: randomUUID(),
+    refresh_expires_at: now,
+    created_at: now,
+    last_seen_at: now,
+  },
   card_transfers: {
     id: ids.card_transfers,
     card_id: ids.loyalty_cards,

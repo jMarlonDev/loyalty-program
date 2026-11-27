@@ -17,6 +17,7 @@ describe('CORE-001 AC-001 configuration', () => {
       supabasePublishableKey: validEnv.SUPABASE_PUBLISHABLE_KEY,
       cardTokenEncryptionKey: validEnv.CARD_TOKEN_ENCRYPTION_KEY,
       corsOrigins: [],
+      authProvider: 'local',
     });
     expect(loadConfig({ ...validEnv, PORT: '8080' }).port).toBe(8080);
   });
@@ -42,9 +43,26 @@ describe('CORE-001 AC-001 configuration', () => {
     'SUPABASE_PUBLISHABLE_KEY',
     'CARD_TOKEN_ENCRYPTION_KEY',
   ])('rejects missing %s', (key) => {
-    const env: NodeJS.ProcessEnv = { ...validEnv };
+    // AUTH-LOCAL-001: Supabase solo es obligatorio con AUTH_PROVIDER=supabase.
+    const env: NodeJS.ProcessEnv = { ...validEnv, AUTH_PROVIDER: 'supabase' };
     delete env[key];
     expect(() => loadConfig(env)).toThrow(key);
+  });
+
+  it('AUTH-LOCAL-001 defaults to local auth without Supabase credentials', () => {
+    const {
+      SUPABASE_URL: _url,
+      SUPABASE_PUBLISHABLE_KEY: _key,
+      ...env
+    } = validEnv;
+    expect(loadConfig(env)).toMatchObject({
+      authProvider: 'local',
+      supabaseUrl: '',
+      supabasePublishableKey: '',
+    });
+    expect(() => loadConfig({ ...env, AUTH_PROVIDER: 'ldap' })).toThrow(
+      'AUTH_PROVIDER',
+    );
   });
 
   it('rejects invalid database URL without exposing its value', () => {

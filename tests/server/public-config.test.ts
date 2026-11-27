@@ -12,7 +12,7 @@ describe('MOBILE-001 origen canónico para enlaces compartidos', () => {
     const response = await handleApi(request);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      data: { appOrigin: 'http://192.168.33.9:3000' },
+      data: { appOrigin: 'http://192.168.33.9:3000', authProvider: 'local' },
     });
     vi.stubEnv('NODE_ENV', 'production');
     expect((await handleApi(request)).status).toBe(503);
@@ -28,7 +28,7 @@ describe('MOBILE-001 origen canónico para enlaces compartidos', () => {
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      data: { appOrigin: 'https://lealtad.example.com' },
+      data: { appOrigin: 'https://lealtad.example.com', authProvider: 'local' },
     });
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.getSetCookie()).toHaveLength(0);
