@@ -8,6 +8,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -48,6 +49,8 @@ export const locations = pgTable(
     name: varchar('name', { length: 255 }).notNull(),
     phone: varchar('phone', { length: 255 }),
     address: text('address').notNull(),
+    // BRANCH-001: punto físico visible (p. ej. «Caja principal, primer piso»).
+    physical_point: varchar('physical_point', { length: 255 }),
     city: varchar('city', { length: 255 }).notNull(),
     department: varchar('department', { length: 255 }).notNull(),
     status: varchar('status', { length: 20 }).notNull(),
@@ -984,6 +987,85 @@ export const staff_sessions = pgTable(
     foreignKey({
       name: 'fk_staff_sessions_user',
       columns: [table.user_id],
+      foreignColumns: [users.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+  ],
+).enableRLS();
+
+// BRANCH-001: un empleado solo opera en las sucursales asignadas.
+export const employee_locations = pgTable(
+  'employee_locations',
+  {
+    employee_id: uuid('employee_id').notNull(),
+    location_id: uuid('location_id').notNull(),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'employee_locations_pk',
+      columns: [table.employee_id, table.location_id],
+    }),
+    index('employee_locations_location_idx').on(table.location_id),
+    foreignKey({
+      name: 'fk_employee_locations_employee',
+      columns: [table.employee_id],
+      foreignColumns: [restaurant_employees.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+    foreignKey({
+      name: 'fk_employee_locations_location',
+      columns: [table.location_id],
+      foreignColumns: [locations.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+  ],
+).enableRLS();
+
+// BRANCH-001: QR de invitación por sucursal, con vencimiento, límite de usos y
+// renovación (revocar + emitir otro). Solo se guarda el hash del token.
+export const branch_invitations = pgTable(
+  'branch_invitations',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    restaurant_id: uuid('restaurant_id').notNull(),
+    location_id: uuid('location_id').notNull(),
+    token_hash: text('token_hash').notNull(),
+    expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+    max_uses: integer('max_uses').notNull(),
+    uses: integer('uses').notNull().default(0),
+    revoked_at: timestamp('revoked_at', { withTimezone: true }),
+    replaced_by: uuid('replaced_by'),
+    created_by: uuid('created_by').notNull(),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    unique('branch_invitations_token_hash_unique').on(table.token_hash),
+    index('branch_invitations_location_idx').on(table.location_id),
+    check(
+      'branch_invitations_uses_check',
+      sql`max_uses BETWEEN 1 AND 50 AND uses >= 0 AND uses <= max_uses`,
+    ),
+    foreignKey({
+      name: 'fk_branch_invitations_restaurant',
+      columns: [table.restaurant_id],
+      foreignColumns: [restaurants.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+    foreignKey({
+      name: 'fk_branch_invitations_location',
+      columns: [table.location_id],
+      foreignColumns: [locations.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+    foreignKey({
+      name: 'fk_branch_invitations_creator',
+      columns: [table.created_by],
       foreignColumns: [users.id],
     })
       .onUpdate('no action')

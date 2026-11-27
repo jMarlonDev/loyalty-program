@@ -184,6 +184,45 @@ export class PgNextRepository {
     return row;
   }
 
+  /**
+   * BRANCH-001: sucursal donde opera el empleado. Debe pertenecer a ella; si
+   * tiene una sola se usa esa, si tiene varias debe elegirla.
+   */
+  private async staffLocation(
+    client: PoolClient,
+    staff: StaffRow,
+    requested?: string | undefined,
+  ): Promise<string> {
+    const assigned = (
+      await client.query<{ id: string }>(
+        `SELECT l.id FROM employee_locations el JOIN locations l ON l.id=el.location_id
+         WHERE el.employee_id=$1 AND l.status='active' ORDER BY l.created_at,l.id`,
+        [staff.id],
+      )
+    ).rows.map((row) => row.id);
+    if (requested) {
+      if (!assigned.includes(requested))
+        throw new AppError(
+          403,
+          'LOCATION_FORBIDDEN',
+          'No perteneces a esta sucursal.',
+        );
+      return requested;
+    }
+    if (assigned.length === 1) return assigned[0] as string;
+    if (assigned.length === 0)
+      throw new AppError(
+        403,
+        'NO_LOCATION',
+        'No tienes una sucursal asignada. Pide al administrador que te asigne una.',
+      );
+    throw new AppError(
+      400,
+      'LOCATION_REQUIRED',
+      'Elige la sucursal en la que estás atendiendo.',
+    );
+  }
+
   private async activeCard(card: CardRow) {
     if (card.restaurant_status !== 'active')
       throw conflict('El restaurante está suspendido.');
@@ -1037,7 +1076,7 @@ export class PgNextRepository {
       });
       return {
         token,
-        url: `${this.origin}/transfer#${token}`,
+        url: `${this.origin}/transfer#token=${token}`,
         expires_at: expires.toISOString(),
       };
     });
@@ -1440,9 +1479,18 @@ export class PgNextRepository {
       voucher_token: string | null;
     } | null;
     allowed_actions: Array<'purchase' | 'redeem'>;
+    locations: Array<{ id: string; name: string }>;
   }> {
     return withTransaction(this.pool, async (client) => {
-      await this.staff(client, userId, restaurantId);
+      const staff = await this.staff(client, userId, restaurantId);
+      // BRANCH-001: sucursales donde este empleado puede sellar o canjear.
+      const locations = (
+        await client.query<{ id: string; name: string }>(
+          `SELECT l.id,l.name FROM employee_locations el JOIN locations l ON l.id=el.location_id
+           WHERE el.employee_id=$1 AND l.status='active' ORDER BY l.name,l.id`,
+          [staff.id],
+        )
+      ).rows;
       let cardId: string;
       let rewardId: string | null = null;
       if (purpose === 'card') {
@@ -1486,6 +1534,7 @@ export class PgNextRepository {
               voucher_token: available.voucher?.token ?? null,
             }
           : null,
+        locations,
         allowed_actions:
           purpose === 'reward'
             ? ['redeem']
@@ -1501,11 +1550,17 @@ export class PgNextRepository {
     restaurantId: string;
     token: string;
     saleReference: string;
+    locationId?: string | undefined;
     key: string;
     requestId: string;
   }): Promise<{ card: CardView; event_id: string }> {
     return withTransaction(this.pool, async (client) => {
       const staff = await this.staff(client, input.userId, input.restaurantId);
+      const locationId = await this.staffLocation(
+        client,
+        staff,
+        input.locationId,
+      );
       const lookup = (
         await client.query<{ card_id: string; customer_id: string }>(
           `SELECT c.id AS card_id,m.user_id AS customer_id FROM loyalty_cards c
@@ -1532,24 +1587,11 @@ export class PgNextRepository {
             restaurantId: input.restaurantId,
             token: input.token,
             saleReference: input.saleReference,
+            locationId,
           },
         },
         async () => {
           const cycle = await this.cycleForPurchase(client, card);
-          let locationId = (
-            await client.query<{ id: string }>(
-              "SELECT id FROM locations WHERE restaurant_id=$1 AND status='active' ORDER BY created_at,id LIMIT 1",
-              [input.restaurantId],
-            )
-          ).rows[0]?.id;
-          if (!locationId) {
-            locationId = randomUUID();
-            await client.query(
-              `INSERT INTO locations(id,restaurant_id,name,address,city,department,status,created_at,updated_at)
-               VALUES($1,$2,'Principal','Por definir','Por definir','Por definir','active',$3,$3)`,
-              [locationId, input.restaurantId, this.now()],
-            );
-          }
           const purchaseId = randomUUID();
           try {
             await client.query(
@@ -1628,11 +1670,17 @@ export class PgNextRepository {
     userId: string;
     restaurantId: string;
     token: string;
+    locationId?: string | undefined;
     key: string;
     requestId: string;
   }): Promise<{ card: CardView; event_id: string }> {
     return withTransaction(this.pool, async (client) => {
       const staff = await this.staff(client, input.userId, input.restaurantId);
+      const locationId = await this.staffLocation(
+        client,
+        staff,
+        input.locationId,
+      );
       const lookup = (
         await client.query<{
           voucher_id: string;
@@ -1738,8 +1786,8 @@ export class PgNextRepository {
               'VOUCHER_CONSUMED',
             );
           const delivered = await client.query(
-            "UPDATE rewards SET status='redeemed',redeemed_by=$2,redeemed_at=$3 WHERE id=$1 AND status='available'",
-            [lookup.reward_id, staff.id, this.now()],
+            "UPDATE rewards SET status='redeemed',redeemed_by=$2,redeemed_at=$3,redeemed_location_id=$4 WHERE id=$1 AND status='available'",
+            [lookup.reward_id, staff.id, this.now(), locationId],
           );
           if (!delivered.rowCount)
             throw conflict('El premio ya fue entregado.', 'REWARD_REDEEMED');
@@ -1956,6 +2004,34 @@ export class PgNextRepository {
           ],
         );
       }
+      // BRANCH-001: la invitación heredada por correo da acceso a las sucursales
+      // activas del restaurante (si no hay ninguna se crea «Principal»).
+      const employeeId = (
+        await client.query<{ id: string }>(
+          'SELECT id FROM restaurant_employees WHERE user_id=$1 AND restaurant_id=$2',
+          [userId, invitation.restaurant_id],
+        )
+      ).rows[0]?.id;
+      let active = (
+        await client.query<{ id: string }>(
+          "SELECT id FROM locations WHERE restaurant_id=$1 AND status='active'",
+          [invitation.restaurant_id],
+        )
+      ).rows.map((row) => row.id);
+      if (active.length === 0) {
+        const locationId = randomUUID();
+        await client.query(
+          `INSERT INTO locations(id,restaurant_id,name,address,city,department,status,created_at,updated_at)
+           VALUES($1,$2,'Principal','Por definir','Por definir','Por definir','active',$3,$3)`,
+          [locationId, invitation.restaurant_id, this.now()],
+        );
+        active = [locationId];
+      }
+      for (const locationId of active)
+        await client.query(
+          'INSERT INTO employee_locations(employee_id,location_id,created_at) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
+          [employeeId, locationId, this.now()],
+        );
       await client.query(
         "UPDATE operator_invitations SET status='accepted',accepted_by=$2,accepted_at=$3 WHERE id=$1",
         [invitation.id, userId, this.now()],

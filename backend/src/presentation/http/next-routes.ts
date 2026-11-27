@@ -314,7 +314,12 @@ export function createNextRoutes({
     mutationOrigin(context);
     const actor = await account(context);
     const body = await json(context.req.raw);
-    requireOnly(body, ['restaurant_id', 'token', 'sale_reference']);
+    requireOnly(body, [
+      'restaurant_id',
+      'token',
+      'sale_reference',
+      'location_id',
+    ]);
     return context.json(
       {
         data: await repository.purchase({
@@ -322,6 +327,10 @@ export function createNextRoutes({
           restaurantId: requireNextUuid(body.restaurant_id),
           token: requireToken(body.token),
           saleReference: requireSaleReference(body.sale_reference),
+          locationId:
+            body.location_id === undefined
+              ? undefined
+              : requireNextUuid(body.location_id),
           key: requireIdempotencyKey(context.req.header('Idempotency-Key')),
           requestId: context.get('requestId'),
         }),
@@ -334,7 +343,7 @@ export function createNextRoutes({
     mutationOrigin(context);
     const actor = await account(context);
     const body = await json(context.req.raw);
-    requireOnly(body, ['restaurant_id', 'token', 'confirm']);
+    requireOnly(body, ['restaurant_id', 'token', 'confirm', 'location_id']);
     if (body.confirm !== true)
       throw new AppError(
         400,
@@ -347,6 +356,10 @@ export function createNextRoutes({
           userId: actor.id,
           restaurantId: requireNextUuid(body.restaurant_id),
           token: requireToken(body.token),
+          locationId:
+            body.location_id === undefined
+              ? undefined
+              : requireNextUuid(body.location_id),
           key: requireIdempotencyKey(context.req.header('Idempotency-Key')),
           requestId: context.get('requestId'),
         }),

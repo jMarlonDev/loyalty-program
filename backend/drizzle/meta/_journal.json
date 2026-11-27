@@ -64,6 +64,13 @@
       "when": 1795784108315,
       "tag": "0008_auth_local",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795785204041,
+      "tag": "0009_branches_invitations",
+      "breakpoints": true
     }
   ]
 }

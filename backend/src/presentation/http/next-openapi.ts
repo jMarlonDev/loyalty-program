@@ -227,13 +227,18 @@ const schemas: Record<string, Schema> = {
       version: integer(),
     }),
     reward: nullable(ref('RewardSummary')),
+    locations: array(object({ id: uuid, name: string() })),
     allowed_actions: array(enumeration('purchase', 'redeem', 'resend')),
   }),
-  PurchaseInput: object({
-    restaurant_id: uuid,
-    token,
-    sale_reference: string(100),
-  }),
+  PurchaseInput: object(
+    {
+      restaurant_id: uuid,
+      token,
+      sale_reference: string(100),
+      location_id: uuid,
+    },
+    ['restaurant_id', 'token', 'sale_reference'],
+  ),
   PurchaseResult: object({
     purchase: object({
       id: uuid,
@@ -247,11 +252,15 @@ const schemas: Record<string, Schema> = {
     version: integer(),
     event_id: uuid,
   }),
-  RedemptionInput: object({
-    restaurant_id: uuid,
-    token,
-    confirm: { type: 'boolean', const: true },
-  }),
+  RedemptionInput: object(
+    {
+      restaurant_id: uuid,
+      token,
+      confirm: { type: 'boolean', const: true },
+      location_id: uuid,
+    },
+    ['restaurant_id', 'token', 'confirm'],
+  ),
   RedemptionResult: object({
     redemption: object({
       id: uuid,
@@ -302,6 +311,96 @@ const schemas: Record<string, Schema> = {
     status: enumeration('active', 'suspended', 'disabled'),
     joined_at: date,
     ended_at: nullable(date),
+  }),
+  Branch: object({
+    id: uuid,
+    name: string(),
+    address: string(500),
+    physical_point: nullable(string()),
+    status: enumeration('active', 'inactive'),
+    employees: integer(),
+  }),
+  BranchCreateInput: object(
+    {
+      name: string(),
+      address: string(500),
+      physical_point: nullable(string()),
+    },
+    ['name', 'address'],
+  ),
+  StaffMember: object({
+    id: uuid,
+    user_id: uuid,
+    full_name: nullable(string()),
+    email: nullable({ ...string(), format: 'email' }),
+    status: enumeration('active', 'suspended', 'disabled'),
+    must_change_password: { type: 'boolean' },
+    can_transfer_cards: { type: 'boolean' },
+    locations: array(object({ id: uuid, name: string() })),
+  }),
+  StaffCreateInput: object(
+    {
+      email: { ...string(), format: 'email' },
+      full_name: string(),
+      location_ids: { type: 'array', items: uuid, minItems: 1, maxItems: 50 },
+      password: string(128, 8),
+    },
+    ['email', 'full_name', 'location_ids'],
+  ),
+  StaffCreated: object({
+    employee_id: uuid,
+    email: { ...string(), format: 'email' },
+    temporary_password: nullable(string(128)),
+    existing_account: { type: 'boolean' },
+  }),
+  StaffLocationsInput: object({
+    location_ids: { type: 'array', items: uuid, minItems: 1, maxItems: 50 },
+  }),
+  StaffLocations: object({ employee_id: uuid, location_ids: array(uuid) }),
+  BranchInvitationInput: object(
+    {
+      expires_in_hours: { type: 'integer', minimum: 1, maximum: 720 },
+      max_uses: { type: 'integer', minimum: 1, maximum: 50 },
+    },
+    [],
+  ),
+  BranchInvitationCreated: object({
+    id: uuid,
+    token: string(128),
+    url: string(2048),
+    expires_at: date,
+    max_uses: integer(1),
+    uses: integer(),
+    state: enumeration('valid', 'expired', 'revoked', 'exhausted'),
+    location_id: uuid,
+    location_name: string(),
+  }),
+  BranchInvitation: object({
+    id: uuid,
+    location_id: uuid,
+    location_name: string(),
+    expires_at: date,
+    max_uses: integer(1),
+    uses: integer(),
+    created_at: date,
+    state: enumeration('valid', 'expired', 'revoked', 'exhausted'),
+  }),
+  BranchInvitationRevoked: object({
+    id: uuid,
+    state: { type: 'string', const: 'revoked' },
+  }),
+  StaffInvitationTokenInput: object({ token: string(128, 20) }),
+  StaffInvitationPreview: object({
+    restaurant_name: string(),
+    location_name: string(),
+    expires_at: date,
+  }),
+  StaffInvitationAccepted: object({
+    restaurant_id: uuid,
+    restaurant_name: string(),
+    location_id: uuid,
+    location_name: string(),
+    employee_id: uuid,
   }),
   RestaurantCreate: establishedSchemas.RestaurantCreate!,
   RestaurantPatch: establishedSchemas.RestaurantPatch!,
@@ -803,6 +902,110 @@ operation({
   input: 'ProgramPatch',
   output: 'Program',
   retry: true,
+});
+
+const BR = '/api/v1/restaurants/{restaurantId}';
+operation({
+  method: 'get',
+  path: `${BR}/branches`,
+  id: 'listBranches',
+  summary: 'Sucursales del restaurante propio',
+  auth: 'owner',
+  output: 'Branch',
+});
+operation({
+  method: 'post',
+  path: `${BR}/branches`,
+  id: 'createBranch',
+  summary: 'Crear sucursal (solo dueño)',
+  auth: 'owner',
+  input: 'BranchCreateInput',
+  output: 'Branch',
+  status: 201,
+});
+operation({
+  method: 'get',
+  path: `${BR}/staff`,
+  id: 'listStaff',
+  summary: 'Empleados con sus sucursales',
+  auth: 'owner',
+  output: 'StaffMember',
+});
+operation({
+  method: 'post',
+  path: `${BR}/staff`,
+  id: 'createStaff',
+  summary:
+    'Alta manual de empleado con contraseña temporal mostrada una sola vez',
+  auth: 'owner',
+  input: 'StaffCreateInput',
+  output: 'StaffCreated',
+  status: 201,
+});
+operation({
+  method: 'patch',
+  path: `${BR}/staff/{targetId}/locations`,
+  id: 'setStaffLocations',
+  summary: 'Reasignar sucursales de un empleado',
+  auth: 'owner',
+  input: 'StaffLocationsInput',
+  output: 'StaffLocations',
+});
+operation({
+  method: 'post',
+  path: `${BR}/branches/{targetId}/invitations`,
+  id: 'createBranchInvitation',
+  summary: 'QR de invitación por sucursal con vencimiento y límite de usos',
+  auth: 'owner',
+  input: 'BranchInvitationInput',
+  output: 'BranchInvitationCreated',
+  status: 201,
+});
+operation({
+  method: 'get',
+  path: `${BR}/branch-invitations`,
+  id: 'listBranchInvitations',
+  summary: 'Invitaciones por sucursal con su estado',
+  auth: 'owner',
+  output: 'BranchInvitation',
+});
+operation({
+  method: 'post',
+  path: `${BR}/branch-invitations/{targetId}/renew`,
+  id: 'renewBranchInvitation',
+  summary: 'Renovar: revoca la invitación y emite otra con los mismos límites',
+  auth: 'owner',
+  input: 'Empty',
+  output: 'BranchInvitationCreated',
+  status: 201,
+});
+operation({
+  method: 'post',
+  path: `${BR}/branch-invitations/{targetId}/revoke`,
+  id: 'revokeBranchInvitation',
+  summary: 'Revocar invitación por sucursal',
+  auth: 'owner',
+  input: 'Empty',
+  output: 'BranchInvitationRevoked',
+});
+operation({
+  method: 'post',
+  path: '/api/v1/staff-invitations/preview',
+  id: 'previewStaffInvitation',
+  summary: 'Vista pública mínima de una invitación (token en el cuerpo)',
+  auth: 'public',
+  input: 'StaffInvitationTokenInput',
+  output: 'StaffInvitationPreview',
+});
+operation({
+  method: 'post',
+  path: '/api/v1/staff-invitations/accept',
+  id: 'acceptStaffInvitation',
+  summary: 'Aceptar invitación con la cuenta autenticada; cuenta un uso',
+  auth: 'account',
+  input: 'StaffInvitationTokenInput',
+  output: 'StaffInvitationAccepted',
+  status: 201,
 });
 
 export const nextOpenApiDocument: Record<string, unknown> = {
