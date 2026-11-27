@@ -142,9 +142,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUserState] = useState<AuthUser | null>(null);
   const setUser = useCallback(
     (value: AuthUser | null) => {
-      if (userId.current !== value?.id) {
+      const nextId = value?.id ?? null;
+      if (userId.current !== nextId) {
         queryClient.clear();
-        userId.current = value?.id ?? null;
+        userId.current = nextId;
       }
       setUserState(value);
     },

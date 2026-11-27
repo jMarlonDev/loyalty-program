@@ -44,6 +44,54 @@ function post(body: unknown, origin = 'https://loyalty.test', cookie = '') {
   });
 }
 describe('AUTH sesión servidor', () => {
+  it('MOBILE-001 AC-006 permite sesión HTTP LAN y conserva Origin exacto', async () => {
+    const { auth } = setup();
+    const origin = 'http://192.168.33.9:3000';
+    const handle = createSessionHandler({ auth, origin });
+    const body = {
+      action: 'login',
+      email: user.email,
+      password: 'password123',
+    };
+    const response = await handle(
+      new Request(`${origin}/api/session`, {
+        method: 'POST',
+        headers: { origin, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const cookies = response.headers.getSetCookie();
+    expect(cookies).toHaveLength(2);
+    for (const cookie of cookies) {
+      expect(cookie).toContain('HttpOnly');
+      expect(cookie).toContain('SameSite=Lax');
+      expect(cookie).not.toContain('Secure');
+      expect(cookie).not.toContain('__Host-');
+    }
+    auth.login = vi.fn();
+    for (const wrongOrigin of [
+      'http://localhost:3000',
+      'http://192.168.33.9:3001',
+      'http://192.168.33.10:3000',
+    ]) {
+      expect(
+        (
+          await handle(
+            new Request(`${origin}/api/session`, {
+              method: 'POST',
+              headers: {
+                origin: wrongOrigin,
+                'content-type': 'application/json',
+              },
+              body: JSON.stringify(body),
+            }),
+          )
+        ).status,
+      ).toBe(403);
+    }
+    expect(auth.login).not.toHaveBeenCalled();
+  });
   it('AUTH-01 impide login CSRF antes de llamar al proveedor', async () => {
     const { auth, handle } = setup();
     expect(

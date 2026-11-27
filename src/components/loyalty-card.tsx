@@ -166,6 +166,7 @@ export function ShareQr({
           marginSize={4}
           level="M"
           title={title}
+          aria-label={title}
         />
       </div>
       <div className="stack">

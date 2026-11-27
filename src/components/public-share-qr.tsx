@@ -22,9 +22,9 @@ export function PublicShareQr({
     <div className="stack">
       {!config.isPublic && (
         <p className="notice" role="status">
-          Este enlace es de prueba y solo funciona en este computador. Para
-          compartirlo con celulares, la aplicación necesita una dirección
-          pública HTTPS.
+          {config.isLan
+            ? 'Este enlace de prueba funciona en dispositivos conectados a la misma red. Para usarlo desde fuera de esa red necesitas una dirección pública HTTPS.'
+            : 'Este enlace es de prueba y solo funciona en este computador. Para compartirlo con celulares, la aplicación necesita una dirección pública HTTPS.'}
         </p>
       )}
       <ShareQr

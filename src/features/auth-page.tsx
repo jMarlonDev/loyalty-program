@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, Check, Gift, Mail } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
+import { AccountSession } from '../components/account-session';
 import { Brand, ErrorNotice, Field, Loading } from '../components/common';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -16,6 +17,10 @@ export function AuthPage() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState<unknown>(null),
     [message, setMessage] = useState('');
+  const destination =
+    mode === 'signup' && !fixedDestination && next === '/app'
+      ? '/app?onboarding=business'
+      : next;
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setMode(
@@ -55,12 +60,17 @@ export function AuthPage() {
         setMessage('Contraseña actualizada. Ya puedes continuar.');
         setMode('login');
       } else if (mode === 'signup') {
-        const result = await auth.signup(email.trim(), password, name, next);
+        const result = await auth.signup(
+          email.trim(),
+          password,
+          name,
+          destination,
+        );
         if (result.confirmationRequired)
           setMessage(
             'Revisa tu correo y confirma tu cuenta en este navegador durante los próximos 10 minutos.',
           );
-        else window.location.assign(next);
+        else window.location.assign(destination);
       } else {
         await auth.login(email, password);
         window.location.assign(next);
@@ -75,7 +85,7 @@ export function AuthPage() {
     setBusy(true);
     setError(null);
     try {
-      await auth.google(next);
+      await auth.google(destination);
     } catch (e) {
       setError(e);
       setBusy(false);
@@ -92,6 +102,15 @@ export function AuthPage() {
         : mode === 'reset'
           ? 'Tu nueva contraseña.'
           : 'Qué gusto verte.';
+  const accessContext = next.startsWith('/invite/')
+    ? 'Usa el correo al que enviaron la invitación. Tras verificarlo podrás unirte al equipo.'
+    : next.startsWith('/join/') || next.startsWith('/cards')
+      ? 'Entra o crea tu cuenta para obtener y consultar tu tarjeta de cliente.'
+      : next.startsWith('/scan')
+        ? 'Entra con la cuenta de tu equipo para registrar la compra del cliente.'
+        : destination === '/app?onboarding=business'
+          ? 'Crea tu cuenta y registra tu restaurante para administrarlo. Invita a tu equipo desde la sección Equipo.'
+          : 'Entra para continuar en tu restaurante o consultar tus tarjetas, según los permisos de tu cuenta.';
   return (
     <div className="auth-page">
       <header>
@@ -130,13 +149,11 @@ export function AuthPage() {
         <section className="auth-panel">
           <h1>{title}</h1>
           <p className="muted">
-            {mode === 'signup'
-              ? 'Una cuenta para tus tarjetas y tus programas.'
-              : mode === 'recover'
-                ? 'Te enviaremos un enlace a tu correo.'
-                : mode === 'reset'
-                  ? 'Elige una contraseña segura para tu cuenta.'
-                  : 'Entra para continuar con tu programa de lealtad.'}
+            {mode === 'recover'
+              ? 'Te enviaremos un enlace a tu correo.'
+              : mode === 'reset'
+                ? 'Elige una contraseña segura para tu cuenta.'
+                : accessContext}
           </p>
           {['login', 'signup'].includes(mode) && !fixedDestination && (
             <fieldset
@@ -165,12 +182,13 @@ export function AuthPage() {
           )}
           {auth.user && ['login', 'signup'].includes(mode) && (
             <div className="notice stack">
-              <p>Ya tienes una sesión abierta con {auth.user.email}.</p>
-              <Button asChild>
-                <a href={next}>
-                  Continuar <ArrowRight size={17} />
-                </a>
-              </Button>
+              <AccountSession>
+                <Button asChild>
+                  <a href={destination}>
+                    Continuar <ArrowRight size={17} />
+                  </a>
+                </Button>
+              </AccountSession>
             </div>
           )}
           {auth.error && !error && (

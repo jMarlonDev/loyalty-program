@@ -1,9 +1,9 @@
-import { parseAppOrigin } from '../lib/public-origin';
+import { readAppOrigin } from './config';
 
 export function publicConfig(env: NodeJS.ProcessEnv): Response {
   try {
     return Response.json(
-      { data: { appOrigin: parseAppOrigin(env.APP_ORIGIN) } },
+      { data: { appOrigin: readAppOrigin(env) } },
       {
         headers: { 'Cache-Control': 'no-store' },
       },

@@ -32,7 +32,7 @@ export function LandingPage() {
             </p>
             <div className="button-row">
               <Button asChild>
-                <a href="/auth?mode=signup">
+                <a href="/auth?mode=signup&next=%2Fapp%3Fonboarding%3Dbusiness">
                   Crear mi programa
                   <ArrowRight size={18} />
                 </a>

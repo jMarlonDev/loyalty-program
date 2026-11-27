@@ -65,3 +65,65 @@ describe('AUTH-04 API cookie bridge', () => {
     ).toBe('no-store');
   });
 });
+
+describe('NEXT-001 customer cookie bridge', () => {
+  const token = Buffer.alloc(32, 7).toString('base64url');
+  const expires = new Date(Date.now() + 400 * 24 * 60 * 60 * 1000);
+  it('forwards only the cookie-derived customer token and issues a hardened cookie', async () => {
+    let seen: string | undefined;
+    const app = {
+      fetch: async (request: Request) => {
+        seen = request.headers.get('x-customer-session') ?? undefined;
+        return Response.json(
+          { ok: true },
+          {
+            headers: {
+              'x-customer-token': token,
+              'x-customer-expires': expires.toISOString(),
+            },
+          },
+        );
+      },
+    };
+    const handle = createApiBridge({ app, origin: 'https://loyalty.test' });
+    const response = await handle(
+      new Request('https://loyalty.test/api/v1/customer/cards', {
+        headers: {
+          cookie: `__Host-loyalty_customer=${token}`,
+          'x-customer-session': 'attacker-token',
+        },
+      }),
+    );
+    expect(seen).toBe(token);
+    const cookie = response.headers.get('set-cookie') ?? '';
+    expect(cookie).toContain(`__Host-loyalty_customer=${token}`);
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('Secure');
+    expect(cookie).toContain('SameSite=Lax');
+    expect(response.headers.get('x-customer-token')).toBeNull();
+  });
+
+  it('clears the device cookie and never trusts a client internal header without a cookie', async () => {
+    let seen: string | null = 'not-called';
+    const app = {
+      fetch: async (request: Request) => {
+        seen = request.headers.get('x-customer-session');
+        return new Response(null, {
+          status: 204,
+          headers: { 'x-customer-clear': '1' },
+        });
+      },
+    };
+    const handle = createApiBridge({ app, origin: 'https://loyalty.test' });
+    const response = await handle(
+      new Request('https://loyalty.test/api/v1/customer/session', {
+        method: 'DELETE',
+        headers: { 'x-customer-session': token },
+      }),
+    );
+    expect(seen).toBeNull();
+    expect(response.headers.get('set-cookie')).toContain(
+      '__Host-loyalty_customer=;',
+    );
+  });
+});

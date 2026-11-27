@@ -5,7 +5,6 @@ export interface Page<T> {
 export interface Restaurant {
   id: string;
   name: string;
-  slug: string;
   status: string;
   actor_role?: 'owner' | 'admin' | 'employee';
   email?: string;
@@ -79,4 +78,75 @@ export interface ClosurePreview {
   benefits_version: number;
   balance: number;
   rewards: Reward[];
+}
+
+export interface RewardView {
+  id: string;
+  description: string;
+  status: 'available' | 'redeemed' | 'cancelled';
+  accounting_mode: 'legacy_debited' | 'debit_on_redemption';
+  earned_at: string;
+  voucher: { token: string; expires_at: string | null } | null;
+  whatsapp_url: string | null;
+}
+export interface CardView {
+  id: string;
+  membership_id: string;
+  program_id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  program_name: string;
+  status: string;
+  version: number;
+  balance: number;
+  target: number;
+  cycle: {
+    id: string;
+    number: number;
+    state: 'collecting' | 'reward_available' | 'redeemed';
+    stamps: number;
+    target: number;
+  } | null;
+  rewards: RewardView[];
+  program: {
+    name: string;
+    description: string | null;
+    stamps_required: number;
+    reward_description: string;
+    logo_url: string | null;
+    background_color: string;
+    text_color: string;
+    card_message: string | null;
+    public_code: string;
+  };
+}
+export interface ScanReward {
+  id: string;
+  description: string;
+  status: string;
+  voucher_token: string | null;
+}
+export interface ScanResult {
+  card: CardView;
+  phone_masked: string;
+  reward: ScanReward | null;
+  allowed_actions: Array<'purchase' | 'redeem'>;
+}
+export interface OperatorInvitation {
+  id: string;
+  restaurant_id: string;
+  email: string;
+  phone_masked: string | null;
+  status: string;
+  expires_at: string;
+}
+export interface OperatorEmployee {
+  id: string;
+  user_id: string;
+  status: string;
+  phone_masked: string | null;
+  joined_at: string;
+  full_name: string;
+  email: string;
+  ended_at: string | null;
 }

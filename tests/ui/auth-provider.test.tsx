@@ -34,6 +34,26 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+it('SESSION-003 restaurar un dispositivo sin cuenta no invalida consultas públicas', async () => {
+  const fetch = vi.fn().mockResolvedValue(failed(401));
+  vi.stubGlobal('fetch', fetch);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client.setQueryData(['public-program'], { public_code: 'stable' });
+  const { result } = renderHook(() => useAuth(), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
+    ),
+  });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.user).toBeNull();
+  expect(client.getQueryData(['public-program'])).toEqual({
+    public_code: 'stable',
+  });
+});
 it('SESSION-003 conserva identidad validada aunque la consulta del perfil falle', async () => {
   const { result, fetch } = setup();
   fetch.mockResolvedValueOnce(failed());

@@ -2,10 +2,12 @@ import { config as loadDotEnv } from 'dotenv';
 import { Pool } from 'pg';
 import { createApp } from '../../backend/src/app';
 import { SupabaseIdentityProvider } from '../../backend/src/infrastructure/identity-provider';
+import { PgNextRepository } from '../../backend/src/infrastructure/next-repository';
 import { createBaseApp } from '../../backend/src/presentation/http/base-app';
 import { createApiBridge } from './bridge';
 import { loadRuntimeConfig } from './config';
 import { publicConfig } from './public-config';
+import { createRealtime } from './realtime';
 import { createSessionHandler, safeNext } from './session';
 import { createSupabaseAuth } from './supabase-auth';
 
@@ -27,6 +29,7 @@ function createRuntime() {
     console.error('Invalid server configuration. Run npm run env:check.');
     throw new RuntimeConfigurationError();
   }
+  const development = process.env.NODE_ENV !== 'production';
   const pool = new Pool({
     connectionString: settings.databaseUrl,
     connectionTimeoutMillis: 5000,
@@ -36,6 +39,12 @@ function createRuntime() {
     max: 10,
   });
   pool.on('error', () => console.error('Database connection unavailable'));
+  const realtime = createRealtime({
+    pool,
+    origin: settings.origin,
+    tokenEncryptionKey: settings.cardTokenEncryptionKey,
+    development,
+  });
   const app = createApp({
     pool,
     identityProvider: new SupabaseIdentityProvider({
@@ -44,9 +53,14 @@ function createRuntime() {
     }),
     cardTokenEncryptionKey: settings.cardTokenEncryptionKey,
     corsOrigins: settings.corsOrigins,
+    publicOrigin: settings.origin,
     log: (entry) => console.info(JSON.stringify(entry)),
   });
-  const api = createApiBridge({ app, origin: settings.origin });
+  const api = createApiBridge({
+    app,
+    origin: settings.origin,
+    development,
+  });
   const session = createSessionHandler({
     auth: createSupabaseAuth({
       url: settings.supabaseUrl,
@@ -54,13 +68,31 @@ function createRuntime() {
     }),
     origin: settings.origin,
   });
-  return { api, session, close: () => pool.end() };
+  return {
+    api,
+    session,
+    realtime,
+    close: async () => {
+      await realtime.close();
+      await pool.end();
+    },
+  };
 }
 
 export async function closeRuntime() {
   const current = runtime;
   runtime = undefined;
   await current?.close();
+}
+
+export async function upgradeCustomerEvents(request: Request) {
+  runtime ??= createRuntime();
+  return runtime.realtime.gateway.upgrade(request);
+}
+
+export function customerEventsGateway() {
+  if (!runtime) throw new Error('Realtime runtime is not initialized');
+  return runtime.realtime.gateway;
 }
 
 export async function handleApi(request: Request): Promise<Response> {

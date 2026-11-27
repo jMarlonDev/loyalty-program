@@ -1,4 +1,27 @@
-export function parseAppOrigin(value: string | undefined): string {
+function isPrivateIpv4(host: string): boolean {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return false;
+  const octets = host.split('.').map(Number);
+  if (octets.some((octet) => octet > 255)) return false;
+  const [first, second] = octets;
+  return (
+    first === 10 ||
+    (first === 192 && second === 168) ||
+    (first === 172 && second >= 16 && second <= 31)
+  );
+}
+
+export function isLanOrigin(origin: string): boolean {
+  try {
+    return isPrivateIpv4(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function parseAppOrigin(
+  value: string | undefined,
+  options: { allowPrivateHttp?: boolean } = {},
+): string {
   const origin = value?.trim();
   try {
     const url = new URL(origin ?? '');
@@ -8,7 +31,11 @@ export function parseAppOrigin(value: string | undefined): string {
       url.origin !== origin ||
       url.username ||
       url.password ||
-      (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))
+      (url.protocol !== 'https:' &&
+        !(
+          url.protocol === 'http:' &&
+          (local || (options.allowPrivateHttp && isPrivateIpv4(url.hostname)))
+        ))
     )
       throw new Error();
     return origin;

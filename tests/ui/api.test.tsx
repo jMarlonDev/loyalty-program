@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, useAction, useCollection } from '../../src/lib/api';
 import { authFetch } from '../../src/lib/auth';
 
@@ -29,7 +29,44 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 beforeEach(() => request.mockReset());
+afterEach(() => vi.unstubAllGlobals());
 describe('cliente fullstack', () => {
+  it('MOBILE-001 AC-008 registra y reintenta en HTTP sin randomUUID', async () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: globalThis.crypto.getRandomValues.bind(
+        globalThis.crypto,
+      ),
+    });
+    request
+      .mockRejectedValueOnce(new TypeError('Network error'))
+      .mockImplementation(async () => response({ data: { id: 'ok' } }));
+    const { result } = renderHook(() => useAction(), { wrapper });
+    const operation = {
+      path: '/purchases',
+      body: { sale_reference: 'LAN-001' },
+    };
+    await act(async () => {
+      await expect(result.current.mutateAsync(operation)).rejects.toThrow(
+        'Network error',
+      );
+    });
+    await act(async () => {
+      await result.current.mutateAsync(operation);
+    });
+    const keys = request.mock.calls.map(([, options]) =>
+      new Headers(options?.headers).get('Idempotency-Key'),
+    );
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^[a-zA-Z0-9-]{16,128}$/);
+    expect(keys[1]).toBe(keys[0]);
+    await act(async () => {
+      await result.current.mutateAsync(operation);
+    });
+    const next = new Headers(request.mock.calls[2]?.[1]?.headers).get(
+      'Idempotency-Key',
+    );
+    expect(next).not.toBe(keys[0]);
+  });
   it('conserva el error de autorización del servidor', async () => {
     request.mockResolvedValue(
       response({ error: { code: 'FORBIDDEN', message: 'Sin permiso' } }, 403),

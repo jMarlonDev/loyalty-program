@@ -5,6 +5,18 @@ vi.mock('dotenv', () => ({ config: vi.fn() }));
 afterEach(() => vi.unstubAllEnvs());
 
 describe('MOBILE-001 origen canónico para enlaces compartidos', () => {
+  it('AC-005 publica LAN en desarrollo y la rechaza en producción', async () => {
+    vi.stubEnv('APP_ORIGIN', 'http://192.168.33.9:3000');
+    vi.stubEnv('NODE_ENV', 'development');
+    const request = new Request('http://internal/api/public-config');
+    const response = await handleApi(request);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: { appOrigin: 'http://192.168.33.9:3000' },
+    });
+    vi.stubEnv('NODE_ENV', 'production');
+    expect((await handleApi(request)).status).toBe(503);
+  });
   it('publica únicamente APP_ORIGIN sin exigir DB ni confiar en Host', async () => {
     vi.stubEnv('APP_ORIGIN', 'https://lealtad.example.com');
     vi.stubEnv('DATABASE_URL', '');

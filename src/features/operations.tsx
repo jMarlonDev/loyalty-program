@@ -1,163 +1,217 @@
-import { Camera, Check, Gift, QrCode, RotateCcw, ScanLine } from 'lucide-react';
+import { Camera, Check, Gift, QrCode, RefreshCw, ScanLine } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Empty, ErrorNotice, Field, PageTitle } from '../components/common';
+import { ErrorNotice, Field, PageTitle } from '../components/common';
 import { LoyaltyCard } from '../components/loyalty-card';
 import { QrCamera } from '../components/qr-camera';
 import { Button } from '../components/ui/button';
-import { Dialog } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
-import { useAction, useCollection } from '../lib/api';
-import { cardScanUrl, clearPendingScan, parseCardScan } from '../lib/card-qr';
-import type { LoyaltyCard as Card, Location, Reward } from '../lib/types';
-import { purchasePayload } from './forms';
+import { useAction } from '../lib/api';
+import {
+  clearPendingScan,
+  parseCardScan,
+  type ScanPurpose,
+} from '../lib/card-qr';
+import { useAppOrigin } from '../lib/public-config';
+import type { ScanResult } from '../lib/types';
 
-type ResolvedCard = Card & {
-  customer_name?: string;
-  customer_email?: string;
-  available_rewards?: Reward[];
-};
 export function OperationsPanel({
   restaurantId,
-  canManage,
   initialToken,
+  initialPurpose = 'card',
+  canManage: _canManage,
 }: {
   restaurantId: string;
-  canManage: boolean;
   initialToken?: string;
+  initialPurpose?: ScanPurpose;
+  canManage?: boolean;
 }) {
-  const locations = useCollection<Location>(
-      `/restaurants/${restaurantId}/locations`,
-    ),
-    resolve = useAction<ResolvedCard>(),
-    action = useAction<Record<string, unknown>>();
-  const [token, setToken] = useState(initialToken ?? ''),
-    [cameraOpen, setCameraOpen] = useState(false),
-    [scanError, setScanError] = useState<Error | null>(null),
-    [card, setCard] = useState<ResolvedCard | null>(null),
-    [location, setLocation] = useState(''),
-    [reference, setReference] = useState(''),
-    [reward, setReward] = useState(''),
-    [purchase, setPurchase] = useState(''),
-    [reason, setReason] = useState(''),
-    [consent, setConsent] = useState(''),
-    [mode, setMode] = useState<'purchase' | 'redeem' | 'reverse'>('purchase'),
-    [message, setMessage] = useState(''),
-    [closeOpen, setCloseOpen] = useState(false),
-    [receipt, setReceipt] = useState<Record<string, unknown> | null>(null);
-  const selectedLocation =
-    location ||
-    locations.items.find((item) => item.status === 'active')?.id ||
-    '';
+  const appOrigin = useAppOrigin();
+  const scanAction = useAction<ScanResult>();
+  const purchaseAction = useAction<ScanResult>();
+  const redeemAction = useAction<ScanResult>();
+  const resendAction = useAction<{
+    token: string;
+    expires_at: string | null;
+    whatsapp_url: string;
+  }>();
+  const [token, setToken] = useState(initialToken ?? '');
+  const [purpose, setPurpose] = useState<ScanPurpose>(initialPurpose);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [scanError, setScanError] = useState<Error | null>(null);
+  const [result, setResult] = useState<ScanResult | null>(null);
+  const [reference, setReference] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const [message, setMessage] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
   const autoLookup = useRef(false);
-  const lookupRef = useRef<(value: string) => Promise<void>>(async () => {});
+  const lookupRef = useRef<(value: string, kind: ScanPurpose) => Promise<void>>(
+    async () => {},
+  );
+
   useEffect(() => {
     if (initialToken && !autoLookup.current) {
       autoLookup.current = true;
-      void lookupRef.current(initialToken);
+      void lookupRef.current(initialToken, initialPurpose);
     }
-  }, [initialToken]);
-  async function lookupValue(value: string) {
-    if (resolve.isPending || action.isPending) return;
-    const scan = parseCardScan(value, window.location.origin, restaurantId);
+  }, [initialToken, initialPurpose]);
+
+  async function lookupValue(value: string, kind: ScanPurpose = purpose) {
+    if (scanAction.isPending || purchaseAction.isPending) return;
+    const parsed = parseCardScan(
+      value,
+      window.location.origin,
+      restaurantId,
+      appOrigin.origin,
+      kind,
+    );
     setScanError(null);
-    setCard(null);
-    if (!scan) {
-      setScanError(new Error('Escanea o pega un código de tarjeta válido.'));
-      return;
-    }
-    if (scan.restaurantId.toLowerCase() !== restaurantId.toLowerCase()) {
-      window.location.assign(cardScanUrl(window.location.origin, scan));
-      return;
-    }
-    setToken(scan.token);
-    setMode('purchase');
+    setResult(null);
     setMessage('');
-    setReceipt(null);
-    setReward('');
-    setPurchase('');
-    setConsent('');
-    setReference('');
-    setReason('');
-    action.reset();
+    setWhatsapp('');
+    setConfirm(false);
+    if (!parsed) {
+      setScanError(new Error('Escanea o pega un código válido.'));
+      return;
+    }
+    const resolved = parsed.purpose ?? kind;
+    setToken(parsed.token);
+    setPurpose(resolved);
     try {
-      const result = await resolve.mutateAsync({
-        path: `/restaurants/${restaurantId}/cards/resolve`,
-        body: { token: scan.token },
+      const scanned = await scanAction.mutateAsync({
+        path: '/operator/scans',
+        body: {
+          restaurant_id: restaurantId,
+          token: parsed.token,
+          purpose: resolved,
+        },
       });
-      setCard(result);
+      setResult(scanned);
       clearPendingScan();
     } catch {
-      setCard(null);
+      setResult(null);
     }
   }
   lookupRef.current = lookupValue;
-  async function lookup(event: FormEvent) {
+
+  async function purchase(event: FormEvent) {
     event.preventDefault();
-    await lookupValue(token);
-  }
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!card || resolve.isPending || action.isPending) return;
+    if (!result || !reference.trim() || purchaseAction.isPending) return;
     setMessage('');
     try {
-      const result = await action.mutateAsync(
-        mode === 'purchase'
-          ? {
-              path: `/restaurants/${restaurantId}/purchases`,
-              body: purchasePayload(card.id, selectedLocation, reference),
-            }
-          : mode === 'redeem'
+      const next = await purchaseAction.mutateAsync({
+        path: '/operator/purchases',
+        body: {
+          restaurant_id: restaurantId,
+          token,
+          sale_reference: reference.trim(),
+        },
+      });
+      setResult({
+        card: next.card,
+        phone_masked: result.phone_masked,
+        reward: (() => {
+          const available = next.card.rewards.find(
+            (item) => item.status === 'available',
+          );
+          return available
             ? {
-                path: `/restaurants/${restaurantId}/rewards/${reward}/redeem`,
-                body: { location_id: selectedLocation },
+                id: available.id,
+                description: available.description,
+                status: available.status,
+                voucher_token: available.voucher?.token ?? null,
               }
-            : {
-                path: `/restaurants/${restaurantId}/purchases/${purchase}/reverse`,
-                body: { reason },
-              },
-      );
-      setReceipt(result);
-      setMessage(
-        mode === 'purchase'
-          ? 'Compra registrada. Se ha sumado un sello.'
-          : mode === 'redeem'
-            ? 'Premio entregado. No se han descontado sellos adicionales.'
-            : 'Compra revertida. El historial original se conserva.',
-      );
+            : null;
+        })(),
+        allowed_actions: next.card.rewards.some(
+          (item) => item.status === 'available',
+        )
+          ? ['purchase', 'redeem']
+          : ['purchase'],
+      });
       setReference('');
-      setReason('');
-      const refreshed = await resolve.mutateAsync({
-        path: `/restaurants/${restaurantId}/cards/resolve`,
-        body: { token: token.trim() },
-      });
-      setCard(refreshed);
+      setMessage(
+        next.card.rewards.some((item) => item.status === 'available')
+          ? 'Compra registrada. Hay un premio disponible.'
+          : 'Compra registrada. Se sumó un sello.',
+      );
     } catch {}
   }
-  async function closeCard() {
-    if (!card) return;
+
+  async function redeem(event: FormEvent) {
+    event.preventDefault();
+    if (!result || !confirm || redeemAction.isPending) return;
+    setMessage('');
     try {
-      await action.mutateAsync({
-        path: `/restaurants/${restaurantId}/cards/${card.id}/close`,
-        body: { consent_id: consent },
+      const next = await redeemAction.mutateAsync({
+        path: '/operator/redemptions',
+        body: { restaurant_id: restaurantId, token, confirm: true },
       });
-      setCard(null);
-      setCloseOpen(false);
-      setMessage('Tarjeta cerrada con el consentimiento del cliente.');
+      setResult({
+        card: next.card,
+        phone_masked: result.phone_masked,
+        reward: null,
+        allowed_actions: ['purchase'],
+      });
+      setConfirm(false);
+      setMessage('Premio entregado. El nuevo ciclo empieza en cero.');
     } catch {}
   }
+
+  async function resend() {
+    const reward = result?.reward;
+    if (!reward || resendAction.isPending) return;
+    try {
+      const sent = await resendAction.mutateAsync({
+        path: `/operator/rewards/${reward.id}/resend`,
+        body: { restaurant_id: restaurantId },
+      });
+      setWhatsapp(sent.whatsapp_url);
+      setMessage('Preparamos el enlace de WhatsApp. Ábrelo para enviarlo.');
+    } catch {}
+  }
+
+  async function refresh() {
+    if (!token) return;
+    try {
+      setResult(
+        await scanAction.mutateAsync({
+          path: '/operator/scans',
+          body: { restaurant_id: restaurantId, token, purpose },
+        }),
+      );
+    } catch {}
+  }
+
+  const card = result?.card;
+  const purchaseAllowed =
+    result?.allowed_actions?.includes('purchase') ?? false;
+  const redeemAllowed = result?.allowed_actions?.includes('redeem') ?? false;
   return (
     <>
       <PageTitle
-        title="Una visita, un sello"
-        description="Abre la tarjeta de tu cliente para registrar su compra o entregar un premio."
+        title={
+          purpose === 'reward' ? 'Entrega del premio' : 'Una visita, un sello'
+        }
+        description={
+          purpose === 'reward'
+            ? 'Revisa el premio, confirma la entrega y comienza el siguiente ciclo.'
+            : 'Escanea el QR de la tarjeta del cliente y registra su compra.'
+        }
       />
       <div className="button-row">
         <Button
           variant="secondary"
           onClick={() => setCameraOpen(true)}
-          disabled={cameraOpen || resolve.isPending || action.isPending}
+          disabled={cameraOpen || scanAction.isPending}
         >
           <Camera size={18} /> Escanear con cámara
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => void refresh()}
+          disabled={!token || scanAction.isPending}
+        >
+          <RefreshCw size={16} /> Actualizar
         </Button>
       </div>
       {cameraOpen && (
@@ -169,319 +223,182 @@ export function OperationsPanel({
           }}
         />
       )}
-      <form className="scan-form panel" onSubmit={lookup}>
+      <form
+        className="scan-form panel"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void lookupValue(token);
+        }}
+      >
         <div className="scan-symbol">
           <ScanLine size={27} />
         </div>
         <Field
-          label="Código de la tarjeta"
-          hint="Usa la cámara, tu lector o pega el código o enlace que muestra el cliente."
+          label="Código o enlace del QR"
+          hint="Usa la cámara, tu lector o pega el código que muestra el cliente."
         >
           {(id) => (
             <Input
               id={id}
               value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Código del QR personal"
+              onChange={(event) => setToken(event.target.value)}
+              placeholder="Código del QR"
               autoComplete="off"
-              disabled={resolve.isPending || action.isPending}
+              disabled={scanAction.isPending}
               required
               maxLength={2048}
             />
           )}
         </Field>
-        <Button disabled={resolve.isPending || action.isPending} type="submit">
+        <Field label="Tipo de código">
+          {(id) => (
+            <select
+              id={id}
+              className="input"
+              value={purpose}
+              onChange={(event) =>
+                setPurpose(event.target.value as ScanPurpose)
+              }
+            >
+              <option value="card">Tarjeta del cliente</option>
+              <option value="reward">Comprobante de premio</option>
+            </select>
+          )}
+        </Field>
+        <Button disabled={scanAction.isPending} type="submit">
           <QrCode size={18} />
-          {resolve.isPending ? 'Buscando…' : 'Abrir tarjeta'}
+          {scanAction.isPending ? 'Buscando…' : 'Abrir tarjeta'}
         </Button>
       </form>
-      <ErrorNotice error={scanError || resolve.error || locations.error} />
+      <ErrorNotice
+        error={
+          scanError ||
+          scanAction.error ||
+          purchaseAction.error ||
+          redeemAction.error ||
+          resendAction.error
+        }
+      />
       {message && (
         <p className="notice notice-success" role="status">
           <Check size={20} />
           {message}
         </p>
       )}
-      {card ? (
+      {whatsapp && (
+        <p className="notice stack" role="status">
+          <span>El mensaje no se envía solo. Abre WhatsApp para enviarlo.</span>
+          <a href={whatsapp} target="_blank" rel="noreferrer">
+            Abrir WhatsApp con el enlace del premio
+          </a>
+        </p>
+      )}
+      {card && (
         <div className="operations-layout">
           <section className="stack">
+            <LoyaltyCard
+              program={{ ...card.program, name: card.program_name }}
+              balance={card.cycle?.stamps ?? 0}
+              compact
+            />
             <div className="section-heading">
               <div>
-                <h2>{card.customer_name || 'Tarjeta del cliente'}</h2>
-                {card.customer_email && (
-                  <p className="muted">{card.customer_email}</p>
-                )}
+                <h2>{card.restaurant_name}</h2>
+                <p className="muted">{result.phone_masked}</p>
               </div>
-              <span className="badge">{card.balance} sellos</span>
+              <span className="badge">
+                {card.cycle?.stamps ?? 0}/{card.cycle?.target ?? card.target}{' '}
+                sellos
+              </span>
             </div>
-            <fieldset className="segmented" aria-label="Operación">
-              {(
-                [
-                  { id: 'purchase', name: 'Registrar compra' },
-                  { id: 'redeem', name: 'Entregar premio' },
-                  ...(canManage
-                    ? [{ id: 'reverse', name: 'Revertir compra' }]
-                    : []),
-                ] as const
-              ).map((tab) => (
-                <button
-                  type="button"
-                  key={tab.id}
-                  aria-pressed={mode === tab.id}
-                  className={mode === tab.id ? 'selected' : ''}
-                  onClick={() => {
-                    setMode(tab.id as typeof mode);
-                    action.reset();
-                    setMessage('');
-                  }}
+            <p className="field-hint">
+              Estado del ciclo: {card.cycle?.state ?? 'sin ciclo'}. La tarjeta
+              del cliente se actualiza sola al confirmar la operación.
+            </p>
+          </section>
+          <section className="stack">
+            {purchaseAllowed && (
+              <form
+                className="panel stack"
+                onSubmit={(event) => void purchase(event)}
+              >
+                <div className="purchase-rule">
+                  <span>+1</span>
+                  <div>
+                    <strong>Un sello por compra</strong>
+                    <p>El backend fija la cantidad; no se puede editar.</p>
+                  </div>
+                </div>
+                <Field
+                  label="Referencia única de venta"
+                  hint="Número de recibo o factura. No se puede repetir en este restaurante."
                 >
-                  {tab.name}
-                </button>
-              ))}
-            </fieldset>
-            <form className="panel stack" onSubmit={submit}>
-              {mode !== 'reverse' && (
-                <Field label="Sucursal de la operación">
                   {(id) => (
-                    <select
+                    <Input
                       id={id}
-                      className="input"
-                      value={selectedLocation}
-                      onChange={(e) => setLocation(e.target.value)}
+                      value={reference}
+                      onChange={(event) => setReference(event.target.value)}
                       required
-                    >
-                      <option value="">Selecciona una sucursal</option>
-                      {locations.items
-                        .filter((item) => item.status === 'active')
-                        .map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name}
-                          </option>
-                        ))}
-                    </select>
+                      maxLength={100}
+                      placeholder="Ej. FACT-1042"
+                    />
                   )}
                 </Field>
-              )}
-              {locations.hasNextPage && (
+                <Button disabled={purchaseAction.isPending} type="submit">
+                  {purchaseAction.isPending
+                    ? 'Registrando…'
+                    : 'Registrar compra · +1 sello'}
+                </Button>
+              </form>
+            )}
+            {redeemAllowed && result?.reward && (
+              <form
+                className="panel stack"
+                onSubmit={(event) => void redeem(event)}
+              >
+                <div className="purchase-rule">
+                  <span>
+                    <Gift size={20} />
+                  </span>
+                  <div>
+                    <strong>{result.reward.description}</strong>
+                    <p>Entrega solo si el cliente muestra el QR de canje.</p>
+                  </div>
+                </div>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={confirm}
+                    onChange={(event) => setConfirm(event.target.checked)}
+                  />
+                  <span>Confirmo que entregué el premio al cliente.</span>
+                </label>
+                <Button
+                  disabled={!confirm || redeemAction.isPending}
+                  type="submit"
+                >
+                  {redeemAction.isPending
+                    ? 'Entregando…'
+                    : 'Confirmar entrega y reiniciar ciclo'}
+                </Button>
                 <Button
                   type="button"
-                  variant="ghost"
-                  onClick={() => void locations.fetchNextPage()}
+                  variant="secondary"
+                  disabled={resendAction.isPending}
+                  onClick={() => void resend()}
                 >
-                  Cargar más sucursales
+                  Preparar envío por WhatsApp
                 </Button>
-              )}
-              {mode === 'purchase' ? (
-                <>
-                  <div className="purchase-rule">
-                    <span>+1</span>
-                    <div>
-                      <strong>Un sello por compra</strong>
-                      <p>
-                        El premio se genera automáticamente al completar la
-                        meta.
-                      </p>
-                    </div>
-                  </div>
-                  <Field
-                    label="Referencia única de venta"
-                    hint="Usa el número de recibo o factura. No se puede repetir en esta sucursal."
-                  >
-                    {(id) => (
-                      <Input
-                        id={id}
-                        value={reference}
-                        onChange={(e) => setReference(e.target.value)}
-                        required
-                        maxLength={100}
-                        placeholder="Ej. FACT-1042"
-                      />
-                    )}
-                  </Field>
-                </>
-              ) : mode === 'redeem' ? (
-                <>
-                  {card.available_rewards ? (
-                    card.available_rewards.length ? (
-                      <Field label="Premio disponible">
-                        {(id) => (
-                          <select
-                            id={id}
-                            className="input"
-                            value={reward}
-                            onChange={(e) => setReward(e.target.value)}
-                            required
-                          >
-                            <option value="">Selecciona el premio</option>
-                            {card.available_rewards?.map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.description}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </Field>
-                    ) : (
-                      <p className="muted">
-                        Esta tarjeta aún no tiene premios disponibles.
-                      </p>
-                    )
-                  ) : (
-                    <Field
-                      label="Código del premio"
-                      hint="El cliente puede encontrarlo en los premios de su tarjeta."
-                    >
-                      {(id) => (
-                        <Input
-                          id={id}
-                          value={reward}
-                          onChange={(e) => setReward(e.target.value)}
-                          required
-                          placeholder="Identificador del premio"
-                        />
-                      )}
-                    </Field>
-                  )}
-                  <p className="field-hint">
-                    Confirma la entrega física antes de registrar el canje.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <Field label="Código de compra">
-                    {(id) => (
-                      <Input
-                        id={id}
-                        value={purchase}
-                        onChange={(e) => setPurchase(e.target.value)}
-                        required
-                        placeholder="Identificador de la compra registrada"
-                      />
-                    )}
-                  </Field>
-                  <Field label="Motivo de la reversión">
-                    {(id) => (
-                      <Input
-                        id={id}
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        required
-                        maxLength={500}
-                      />
-                    )}
-                  </Field>
-                  <p className="field-hint">
-                    No puedes revertir una compra que haya generado un premio ya
-                    entregado.
-                  </p>
-                </>
-              )}
-              <ErrorNotice error={action.error} />
-              <Button
-                disabled={
-                  action.isPending ||
-                  resolve.isPending ||
-                  (mode !== 'reverse' && !selectedLocation) ||
-                  (mode === 'redeem' && card.available_rewards?.length === 0)
-                }
-                type="submit"
-              >
-                {action.isPending
-                  ? 'Guardando…'
-                  : mode === 'purchase'
-                    ? 'Registrar compra y sumar un sello'
-                    : mode === 'redeem'
-                      ? 'Confirmar entrega del premio'
-                      : 'Revertir compra'}
-                {mode === 'redeem' ? (
-                  <Gift size={17} />
-                ) : mode === 'reverse' ? (
-                  <RotateCcw size={17} />
-                ) : (
-                  <Check size={17} />
-                )}
-              </Button>
-            </form>
-            {receipt && (
-              <div className="notice receipt-detail">
-                <strong>Comprobante de operación</strong>
-                {Object.entries(receipt)
-                  .filter(
-                    ([key, value]) =>
-                      ['purchase_id', 'reward_id', 'balance'].includes(key) &&
-                      ['string', 'number'].includes(typeof value),
-                  )
-                  .map(([key, value]) => (
-                    <p key={key}>
-                      {key === 'purchase_id'
-                        ? 'Compra'
-                        : key === 'reward_id'
-                          ? 'Premio'
-                          : 'Saldo'}
-                      : <code>{String(value)}</code>
-                    </p>
-                  ))}
-              </div>
+              </form>
             )}
-            <button
-              type="button"
-              className="danger-link"
-              onClick={() => setCloseOpen(true)}
-            >
-              Cerrar tarjeta con autorización del cliente
-            </button>
+            {!purchaseAllowed && !redeemAllowed && (
+              <p className="notice" role="status">
+                Esta tarjeta no permite operaciones en su estado actual.
+              </p>
+            )}
           </section>
-          <aside className="preview-column">
-            <LoyaltyCard
-              program={{ ...card, name: card.program_name }}
-              balance={card.balance}
-            />
-            <p className="field-hint">
-              El QR de esta tarjeta pertenece al cliente. No lo compartas.
-            </p>
-          </aside>
         </div>
-      ) : (
-        !resolve.isPending && (
-          <Empty title="Listos para la próxima visita">
-            El código de la tarjeta identifica al cliente dentro de este
-            restaurante.
-          </Empty>
-        )
       )}
-      <Dialog
-        open={closeOpen}
-        onOpenChange={setCloseOpen}
-        title="Cerrar la tarjeta"
-        description="El cliente debe haber confirmado el cierre desde su cuenta. Se anulan el saldo y los premios pendientes; el historial se conserva."
-      >
-        <form
-          className="stack"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void closeCard();
-          }}
-        >
-          <Field label="Código de consentimiento del cliente">
-            {(id) => (
-              <Input
-                id={id}
-                value={consent}
-                onChange={(e) => setConsent(e.target.value)}
-                required
-              />
-            )}
-          </Field>
-          <ErrorNotice error={action.error} />
-          <Button
-            type="submit"
-            variant="destructive"
-            disabled={action.isPending}
-          >
-            Confirmar cierre autorizado
-          </Button>
-        </form>
-      </Dialog>
     </>
   );
 }

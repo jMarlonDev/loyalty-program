@@ -1,3 +1,4 @@
+import { createCustomerCookie } from './customer-cookie';
 import {
   cookieName,
   readCookie,
@@ -13,10 +14,18 @@ export function createApiBridge(options: {
     ) => Promise<Response> | Response;
   };
   origin: string;
+  development?: boolean;
 }) {
   const secure = options.origin.startsWith('https:');
+  const customerCookie = createCustomerCookie({
+    origin: options.origin,
+    development: options.development,
+  });
   return async (request: Request): Promise<Response> => {
     const headers = new Headers(request.headers);
+    headers.delete('x-customer-session');
+    const customer = customerCookie.read(request);
+    if (customer) headers.set('x-customer-session', customer);
     const access = readCookie(request, cookieName('access', secure));
     if (!headers.has('authorization') && access) {
       if (
@@ -49,6 +58,21 @@ export function createApiBridge(options: {
       remoteAddress ? { remoteAddress } : {},
     );
     const result = new Response(response.body, response);
+    const issued = response.headers.get('x-customer-token');
+    if (issued) {
+      const expires = response.headers.get('x-customer-expires');
+      const expiresAt = expires ? new Date(expires) : new Date(0);
+      if (Number.isFinite(expiresAt.getTime()))
+        result.headers.append(
+          'set-cookie',
+          customerCookie.issue(issued, expiresAt, new Date()),
+        );
+    }
+    if (response.headers.has('x-customer-clear'))
+      result.headers.append('set-cookie', customerCookie.clear());
+    result.headers.delete('x-customer-token');
+    result.headers.delete('x-customer-expires');
+    result.headers.delete('x-customer-clear');
     result.headers.set('cache-control', 'no-store');
     result.headers.append('vary', 'Cookie');
     return result;

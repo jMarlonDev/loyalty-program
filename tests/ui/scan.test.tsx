@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ScanPage } from '../../src/features/scan';
 import {
@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   restaurant: null as { name: string; actor_role: string } | null,
   restaurantError: null as Error | null,
   calls: [] as (string | null)[],
+  logout: vi.fn(),
 }));
 vi.mock('../../src/lib/auth', () => ({
   useAuth: () => ({
@@ -20,6 +21,7 @@ vi.mock('../../src/lib/auth', () => ({
     error: state.error,
     loading: false,
     reload: vi.fn(),
+    logout: state.logout,
   }),
 }));
 vi.mock('../../src/lib/api', () => ({
@@ -37,12 +39,18 @@ vi.mock('../../src/lib/api', () => ({
 vi.mock('../../src/features/operations', () => ({
   OperationsPanel: ({
     initialToken,
+    initialPurpose,
     restaurantId,
   }: {
     initialToken: string;
+    initialPurpose?: string;
     restaurantId: string;
   }) => (
-    <p data-testid="operation" data-token={initialToken}>
+    <p
+      data-testid="operation"
+      data-token={initialToken}
+      data-purpose={initialPurpose}
+    >
       {restaurantId}
     </p>
   ),
@@ -50,6 +58,7 @@ vi.mock('../../src/features/operations', () => ({
 const scan = {
   token: 'a'.repeat(43),
   restaurantId: '11111111-1111-4111-8111-111111111111',
+  purpose: 'card' as const,
 };
 beforeEach(() => {
   state.user = null;
@@ -57,6 +66,10 @@ beforeEach(() => {
   state.restaurant = null;
   state.restaurantError = null;
   state.calls = [];
+  state.logout.mockReset().mockImplementation(async () => {
+    state.user = null;
+    window.dispatchEvent(new Event('loyalty:logout'));
+  });
   sessionStorage.clear();
   window.history.replaceState(
     {},
@@ -65,6 +78,22 @@ beforeEach(() => {
   );
 });
 describe('entrada privada QR', () => {
+  it('permite cambiar de cliente a empleado sin perder la tarjeta escaneada', async () => {
+    state.user = { id: 'customer' };
+    state.restaurantError = new Error('No autorizado');
+    render(<ScanPage />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Usar otra cuenta' }),
+    );
+    expect(
+      await screen.findByRole('link', {
+        name: 'Iniciar sesión para agregar un sello',
+      }),
+    ).toBeVisible();
+    expect(state.logout).toHaveBeenCalledTimes(1);
+    expect(readPendingScan()).toEqual(scan);
+    expect(window.location.href).not.toContain(scan.token);
+  });
   it('limpia fragmento y retoma login sin enviar el token en next', async () => {
     render(<ScanPage />);
     const link = await screen.findByRole('link', {
