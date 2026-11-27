@@ -37,6 +37,13 @@ const object = (
 });
 const array = (items: Schema): Schema => ({ type: 'array', items });
 const token: Schema = { ...string(43, 43), pattern: '^[A-Za-z0-9_-]{43}$' };
+const cardQrToken: Schema = {
+  ...string(50, 50),
+  pattern: '^c1[A-Za-z0-9_-]{48}$',
+};
+const scanToken: Schema = {
+  oneOf: [cardQrToken, token],
+};
 const publicCode: Schema = { ...string(), pattern: '^[A-Za-z0-9_-]+$' };
 const phone: Schema = { ...string(32, 4), pattern: '^[+0-9][0-9 ()-]*$' };
 const country: Schema = { ...string(2, 2), pattern: '^[A-Z]{2}$' };
@@ -181,8 +188,11 @@ const schemas: Record<string, Schema> = {
   }),
   CardQr: object({
     card_id: uuid,
+    restaurant_id: uuid,
     purpose: { type: 'string', const: 'card' },
-    token,
+    token: cardQrToken,
+    rotates_at: date,
+    expires_at: date,
   }),
   CardEvent: object({
     event_id: uuid,
@@ -213,7 +223,7 @@ const schemas: Record<string, Schema> = {
   OperatorScanInput: object({
     restaurant_id: uuid,
     purpose: enumeration('card', 'reward'),
-    token,
+    token: scanToken,
   }),
   OperatorScan: object({
     purpose: enumeration('card', 'reward'),
@@ -233,11 +243,11 @@ const schemas: Record<string, Schema> = {
   PurchaseInput: object(
     {
       restaurant_id: uuid,
-      token,
+      token: cardQrToken,
       sale_reference: string(100),
       location_id: uuid,
     },
-    ['restaurant_id', 'token', 'sale_reference'],
+    ['restaurant_id', 'token'],
   ),
   PurchaseResult: object({
     purchase: object({

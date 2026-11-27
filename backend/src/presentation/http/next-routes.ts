@@ -8,6 +8,7 @@ import {
   requireSaleReference,
   requireToken,
 } from '../../application/next.js';
+import { requireCardQrToken } from '../../infrastructure/card-qr.js';
 import type { PgNextRepository } from '../../infrastructure/next-repository.js';
 import { requireIdempotencyKey } from '../../infrastructure/transactions.js';
 import { type HttpContext, NativeRoutes } from './native-routes.js';
@@ -304,7 +305,9 @@ export function createNextRoutes({
       data: await repository.scan(
         actor.id,
         requireNextUuid(body.restaurant_id),
-        requireToken(body.token),
+        body.purpose === 'card'
+          ? requireCardQrToken(body.token)
+          : requireToken(body.token),
         body.purpose,
       ),
     });
@@ -325,8 +328,14 @@ export function createNextRoutes({
         data: await repository.purchase({
           userId: actor.id,
           restaurantId: requireNextUuid(body.restaurant_id),
-          token: requireToken(body.token),
-          saleReference: requireSaleReference(body.sale_reference),
+          token: requireCardQrToken(body.token),
+          // D-06: referencia de ticket opcional; si se escribe, debe ser única.
+          saleReference:
+            body.sale_reference === undefined ||
+            body.sale_reference === null ||
+            body.sale_reference === ''
+              ? null
+              : requireSaleReference(body.sale_reference),
           locationId:
             body.location_id === undefined
               ? undefined

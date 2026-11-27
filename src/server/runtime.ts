@@ -21,6 +21,16 @@ const liveness = createBaseApp({
   },
 });
 
+function parseCooldown(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === '') return undefined;
+  const minutes = Number(value);
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 10080) {
+    console.error('Ignoring invalid STAMP_COOLDOWN_MINUTES');
+    return undefined;
+  }
+  return minutes;
+}
+
 function createRuntime() {
   // Runtime only; no variables are serialized into the browser bundle.
   loadDotEnv({ path: ['.env', 'backend/.env'], quiet: true });
@@ -61,6 +71,10 @@ function createRuntime() {
     cardTokenEncryptionKey: settings.cardTokenEncryptionKey,
     corsOrigins: settings.corsOrigins,
     publicOrigin: settings.origin,
+    // D-06: STAMP_COOLDOWN_MINUTES solo se respeta fuera de producción.
+    stampCooldownMinutes: development
+      ? parseCooldown(process.env.STAMP_COOLDOWN_MINUTES)
+      : undefined,
     log: (entry) => console.info(JSON.stringify(entry)),
   });
   const api = createApiBridge({

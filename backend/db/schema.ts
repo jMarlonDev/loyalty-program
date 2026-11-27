@@ -223,9 +223,17 @@ export const loyalty_programs = pgTable(
     background_color: varchar('background_color', { length: 7 }),
     text_color: varchar('text_color', { length: 7 }),
     card_message: varchar('card_message', { length: 160 }),
+    // D-06: espera mínima entre sellos por cliente y sucursal (minutos).
+    stamp_cooldown_minutes: integer('stamp_cooldown_minutes')
+      .notNull()
+      .default(240),
   },
   (table) => [
     check('loyalty_programs_stamps_required_check', sql`stamps_required > 0`),
+    check(
+      'loyalty_programs_cooldown_check',
+      sql`stamp_cooldown_minutes BETWEEN 0 AND 10080`,
+    ),
     check(
       'loyalty_programs_status_check',
       sql`status IN ('active', 'paused', 'ended')`,

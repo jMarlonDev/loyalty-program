@@ -7,6 +7,7 @@ import {
   maskPhoneGrouped,
   normalizePhone,
 } from '../application/next.js';
+import { createCardQr } from './card-qr.js';
 import { createTokenCodec } from './token-codec.js';
 import { idempotent, withTransaction } from './transactions.js';
 
@@ -40,6 +41,7 @@ type CardRow = {
   background_color: string | null;
   text_color: string | null;
   card_message: string | null;
+  stamp_cooldown_minutes: number;
   card_status: string;
   card_version: number;
   membership_status: string;
@@ -83,17 +85,23 @@ function hash(value: string) {
 
 export class PgNextRepository {
   private readonly codec;
+  private readonly cardQr;
   private readonly now: () => Date;
   private readonly origin: string;
+  /** D-06: sobrescribe la espera del programa (solo desarrollo, STAMP_COOLDOWN_MINUTES). */
+  private readonly cooldownOverride: number | undefined;
   constructor(
     private readonly pool: Pool,
     options: {
       tokenEncryptionKey: string;
       now?: () => Date;
       publicOrigin?: string;
+      stampCooldownMinutes?: number | undefined;
     },
   ) {
     this.codec = createTokenCodec(options.tokenEncryptionKey);
+    this.cardQr = createCardQr(options.tokenEncryptionKey);
+    this.cooldownOverride = options.stampCooldownMinutes;
     this.now = options.now ?? (() => new Date());
     this.origin = options.publicOrigin ?? '';
   }
@@ -168,7 +176,7 @@ export class PgNextRepository {
         c.status AS card_status,c.version AS card_version,m.status AS membership_status,
         p.name AS program_name,p.status AS program_status,p.description AS program_description,
         p.public_code,p.stamps_required,p.reward_description,p.logo_url,p.background_color,
-        p.text_color,p.card_message,p.restaurant_id,
+        p.text_color,p.card_message,p.stamp_cooldown_minutes,p.restaurant_id,
         r.name AS restaurant_name,r.status AS restaurant_status,
         u.phone AS customer_phone,u.full_name AS customer_name,c.qr_token_encrypted
        FROM loyalty_cards c
@@ -220,6 +228,42 @@ export class PgNextRepository {
       400,
       'LOCATION_REQUIRED',
       'Elige la sucursal en la que estás atendiendo.',
+    );
+  }
+
+  /** D-06: espera mínima entre sellos para el mismo cliente en la misma sucursal. */
+  private async assertCooldown(
+    client: PoolClient,
+    card: CardRow,
+    locationId: string,
+  ): Promise<void> {
+    const minutes = this.cooldownOverride ?? card.stamp_cooldown_minutes;
+    if (!minutes || minutes <= 0) return;
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+      `stamp:${card.customer_id}:${locationId}`,
+    ]);
+    const last = (
+      await client.query<{ created_at: Date | null }>(
+        `SELECT max(pu.created_at) AS created_at FROM purchases pu
+         JOIN memberships m ON m.id=pu.membership_id
+         WHERE m.user_id=$1 AND pu.location_id=$2 AND pu.reversed_at IS NULL`,
+        [card.customer_id, locationId],
+      )
+    ).rows[0]?.created_at;
+    if (!last) return;
+    const remaining = last.getTime() + minutes * 60_000 - this.now().getTime();
+    if (remaining <= 0) return;
+    const totalMinutes = Math.ceil(remaining / 60_000);
+    const hours = Math.floor(totalMinutes / 60);
+    const rest = totalMinutes % 60;
+    const wait =
+      hours > 0
+        ? `${hours} h${rest ? ` ${rest} min` : ''}`
+        : `${totalMinutes} min`;
+    throw new AppError(
+      429,
+      'STAMP_COOLDOWN',
+      `Este cliente ya recibió un sello en esta sucursal. Podrá recibir el siguiente en ${wait}.`,
     );
   }
 
@@ -1350,18 +1394,36 @@ export class PgNextRepository {
   async getCardQr(
     principal: CustomerPrincipal,
     cardId: string,
-  ): Promise<{ card_id: string; restaurant_id: string; token: string }> {
+  ): Promise<{
+    card_id: string;
+    restaurant_id: string;
+    token: string;
+    rotates_at: string;
+    expires_at: string;
+  }> {
     return withTransaction(this.pool, async (client) => {
       const card = await this.card(client, cardId);
       if (!this.owns(principal, card)) throw notFound();
       await this.activeCard(card);
-      if (!card.qr_token_encrypted) throw conflict('El QR no está disponible.');
+      // D-06: token HMAC rotativo (60 s); el cliente lo vuelve a pedir al rotar.
       return {
         card_id: card.id,
         restaurant_id: card.restaurant_id,
-        token: this.codec.decrypt(card.qr_token_encrypted),
+        ...this.cardQr.issue(card.id, this.now()),
       };
     });
+  }
+
+  /** D-06: resuelve el QR rotativo; uno vencido o alterado no identifica tarjeta. */
+  private cardFromQr(token: string): string {
+    const cardId = this.cardQr.verify(token, this.now());
+    if (!cardId)
+      throw new AppError(
+        409,
+        'CARD_QR_EXPIRED',
+        'Este QR ya venció. Pide al cliente que abra su tarjeta para mostrar el QR actual.',
+      );
+    return cardId;
   }
 
   async getRewardVoucher(
@@ -1498,8 +1560,8 @@ export class PgNextRepository {
           await client.query<{ card_id: string }>(
             `SELECT c.id AS card_id FROM loyalty_cards c
              JOIN memberships m ON m.id=c.membership_id JOIN loyalty_programs p ON p.id=m.program_id
-             WHERE c.qr_token_hash=$1 AND p.restaurant_id=$2 AND c.status='active'`,
-            [this.codec.hash(token), restaurantId],
+             WHERE c.id=$1 AND p.restaurant_id=$2 AND c.status='active'`,
+            [this.cardFromQr(token), restaurantId],
           )
         ).rows[0];
         if (!row) throw notFound();
@@ -1549,7 +1611,7 @@ export class PgNextRepository {
     userId: string;
     restaurantId: string;
     token: string;
-    saleReference: string;
+    saleReference: string | null;
     locationId?: string | undefined;
     key: string;
     requestId: string;
@@ -1565,8 +1627,8 @@ export class PgNextRepository {
         await client.query<{ card_id: string; customer_id: string }>(
           `SELECT c.id AS card_id,m.user_id AS customer_id FROM loyalty_cards c
            JOIN memberships m ON m.id=c.membership_id JOIN loyalty_programs p ON p.id=m.program_id
-           WHERE c.qr_token_hash=$1 AND p.restaurant_id=$2`,
-          [this.codec.hash(input.token), input.restaurantId],
+           WHERE c.id=$1 AND p.restaurant_id=$2`,
+          [this.cardFromQr(input.token), input.restaurantId],
         )
       ).rows[0];
       if (!lookup) throw notFound();
@@ -1585,12 +1647,14 @@ export class PgNextRepository {
           operation: 'next.purchase',
           payload: {
             restaurantId: input.restaurantId,
-            token: input.token,
+            // El token rota: un reintento con un QR más nuevo es la misma operación.
+            cardId: card.id,
             saleReference: input.saleReference,
             locationId,
           },
         },
         async () => {
+          await this.assertCooldown(client, card, locationId);
           const cycle = await this.cycleForPurchase(client, card);
           const purchaseId = randomUUID();
           try {
@@ -1648,6 +1712,18 @@ export class PgNextRepository {
               ],
             );
             await this.issueVoucher(client, rewardId);
+            // D-03 combinada: la tarjeta vuelve a 0 enseguida; el premio queda pendiente.
+            await client.query(
+              `INSERT INTO loyalty_cycles(id,membership_id,number,state,stamps,target,opened_at)
+               VALUES($1,$2,$3,'collecting',0,$4,$5)`,
+              [
+                randomUUID(),
+                card.membership_id,
+                cycle.number + 1,
+                card.stamps_required,
+                this.now(),
+              ],
+            );
             type = 'reward.available';
           } else {
             await client.query(
@@ -1718,10 +1794,7 @@ export class PgNextRepository {
         },
         async () => {
           if (lookup.voucher_status !== 'active')
-            throw conflict(
-              'El comprobante ya fue utilizado.',
-              'VOUCHER_CONSUMED',
-            );
+            throw conflict('Este premio ya fue usado.', 'VOUCHER_CONSUMED');
           if (
             lookup.expires_at &&
             lookup.expires_at.getTime() <= this.now().getTime()
@@ -1731,7 +1804,7 @@ export class PgNextRepository {
               'VOUCHER_EXPIRED',
             );
           if (lookup.reward_status !== 'available')
-            throw conflict('El premio ya fue entregado.', 'REWARD_REDEEMED');
+            throw conflict('Este premio ya fue usado.', 'REWARD_REDEEMED');
           let cycle: CycleRow | null = null;
           if (lookup.cycle_id) {
             cycle =
@@ -1781,16 +1854,13 @@ export class PgNextRepository {
             [lookup.reward_id, this.now()],
           );
           if (!voucher.rowCount)
-            throw conflict(
-              'El comprobante ya fue utilizado.',
-              'VOUCHER_CONSUMED',
-            );
+            throw conflict('Este premio ya fue usado.', 'VOUCHER_CONSUMED');
           const delivered = await client.query(
             "UPDATE rewards SET status='redeemed',redeemed_by=$2,redeemed_at=$3,redeemed_location_id=$4 WHERE id=$1 AND status='available'",
             [lookup.reward_id, staff.id, this.now(), locationId],
           );
           if (!delivered.rowCount)
-            throw conflict('El premio ya fue entregado.', 'REWARD_REDEEMED');
+            throw conflict('Este premio ya fue usado.', 'REWARD_REDEEMED');
           await client.query(
             "UPDATE loyalty_cycles SET state='redeemed',closed_at=$2 WHERE id=$1",
             [cycle.id, this.now()],

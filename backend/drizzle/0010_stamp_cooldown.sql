@@ -1,0 +1,2 @@
+ALTER TABLE "loyalty_programs" ADD COLUMN "stamp_cooldown_minutes" integer DEFAULT 240 NOT NULL;--> statement-breakpoint
+ALTER TABLE "loyalty_programs" ADD CONSTRAINT "loyalty_programs_cooldown_check" CHECK (stamp_cooldown_minutes BETWEEN 0 AND 10080);

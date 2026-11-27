@@ -33,6 +33,8 @@ export interface AppDependencies {
   log?: (entry: OperationLog) => void;
   now?: () => Date;
   publicOrigin?: string;
+  /** D-06: solo desarrollo; sobrescribe la espera entre sellos de los programas. */
+  stampCooldownMinutes?: number | undefined;
 }
 
 export function createApp(dependencies: AppDependencies) {
@@ -61,6 +63,7 @@ export function createApp(dependencies: AppDependencies) {
       identityService,
       repository: new PgNextRepository(dependencies.pool, {
         ...repositoryOptions,
+        stampCooldownMinutes: dependencies.stampCooldownMinutes,
         ...(dependencies.publicOrigin
           ? { publicOrigin: dependencies.publicOrigin }
           : {}),
