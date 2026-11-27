@@ -14,10 +14,14 @@ const ids = Object.fromEntries(
   tables.map((table) => [table.name, randomUUID()]),
 );
 ids.customers = ids.users!;
+// BRANCH-001: employee_locations tiene PK compuesta; se identifica por su empleado.
+ids.employee_locations = ids.restaurant_employees!;
 const primaryKey = (tableName: string) =>
-  tables
-    .find((table) => table.name === tableName)
-    ?.columns.find((column) => column.primary)?.name ?? 'id';
+  tableName === 'employee_locations'
+    ? 'employee_id'
+    : (tables
+        .find((table) => table.name === tableName)
+        ?.columns.find((column) => column.primary)?.name ?? 'id');
 const now = new Date().toISOString();
 const timestamps = { created_at: now, updated_at: now };
 const graph: Record<string, Record<string, unknown>> = {
@@ -234,6 +238,22 @@ const graph: Record<string, Record<string, unknown>> = {
     created_at: now,
     last_seen_at: now,
   },
+  employee_locations: {
+    employee_id: ids.restaurant_employees,
+    location_id: ids.locations,
+    created_at: now,
+  },
+  branch_invitations: {
+    id: ids.branch_invitations,
+    restaurant_id: ids.restaurants,
+    location_id: ids.locations,
+    token_hash: randomUUID(),
+    expires_at: now,
+    max_uses: 3,
+    uses: 0,
+    created_by: ids.users,
+    created_at: now,
+  },
   card_transfers: {
     id: ids.card_transfers,
     card_id: ids.loyalty_cards,
@@ -294,6 +314,7 @@ const checks: [string, string, unknown][] = [
   ['reward_vouchers', 'status', 'invalid'],
   ['reward_deliveries', 'channel', 'invalid'],
   ['reward_deliveries', 'status', 'invalid'],
+  ['branch_invitations', 'uses', -1],
 ];
 
 describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {

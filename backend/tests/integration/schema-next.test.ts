@@ -49,6 +49,7 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
       const additive: Record<string, string[]> = {
         restaurants: ['owner_user_id'],
         users: ['must_change_password'],
+        locations: ['physical_point'],
         loyalty_cards: ['version'],
         rewards: ['accounting_mode', 'cycle_id'],
         restaurant_employees: ['phone', 'can_transfer_cards'],
@@ -70,10 +71,14 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
         'card_transfers',
         'enrollment_attempts',
         'staff_sessions',
+        'branch_invitations',
       ]) {
         expect(after[table]).toEqual([]);
         delete after[table];
       }
+      // BRANCH-001: los empleados existentes quedan asignados a las sucursales activas.
+      expect((after.employee_locations as unknown[]).length).toBeGreaterThan(0);
+      delete after.employee_locations;
       for (const [table, columns] of Object.entries(additive)) {
         for (const row of after[table] as Record<string, unknown>[]) {
           for (const column of columns) delete row[column];
@@ -118,7 +123,7 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
             'SELECT * FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(9);
+      ).toBe(10);
     } finally {
       await database.cleanup();
     }
@@ -259,7 +264,7 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
             'SELECT * FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(9);
+      ).toBe(10);
       expect(
         (
           await restored.pool.query(

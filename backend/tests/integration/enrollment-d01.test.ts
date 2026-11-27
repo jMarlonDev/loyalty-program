@@ -43,6 +43,17 @@ describe('NEXT-006 D-01 inscripción por teléfono, cierre y transferencia', () 
         "INSERT INTO restaurant_employees(id,user_id,restaurant_id,role_id,status,joined_at,created_at,updated_at) VALUES($1,$2,$3,$4,'active',now(),now(),now())",
         [id, userId, restaurant, roleId],
       );
+    // BRANCH-001: el empleado solo opera en las sucursales asignadas.
+    await database.pool.query(
+      "INSERT INTO locations(id,restaurant_id,name,address,city,department,status,created_at,updated_at) VALUES(gen_random_uuid(),$1,'Principal','Calle 1','','','active',now(),now())",
+      [restaurant],
+    );
+    await database.pool.query(
+      `INSERT INTO employee_locations(employee_id,location_id,created_at)
+       SELECT e.id,l.id,now() FROM restaurant_employees e JOIN locations l ON l.restaurant_id=e.restaurant_id
+       WHERE e.restaurant_id=$1 AND e.user_id<>$2`,
+      [restaurant, owner],
+    );
     await database.pool.query(
       `INSERT INTO loyalty_programs(id,restaurant_id,name,public_code,stamps_required,reward_description,status,created_at,updated_at)
        VALUES($1,$2,'D01',$3,3,'Premio','active',now(),now())`,

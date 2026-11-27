@@ -38,6 +38,12 @@ describe('NEXT-001/004 OpenAPI security contracts', () => {
       'restaurant_id',
       'token',
       'sale_reference',
+      'location_id',
+    ]);
+    expect(purchase?.required).toEqual([
+      'restaurant_id',
+      'token',
+      'sale_reference',
     ]);
     expect(
       (schemas().RedemptionInput?.properties as JsonObject)?.confirm,

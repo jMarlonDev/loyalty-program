@@ -64,7 +64,9 @@ describe('OPS-001 AC-005 OpenAPI executable contract', () => {
       for (const [method, operation] of Object.entries(methods)) {
         const isPublic =
           ['/health', '/ready', '/openapi.json'].includes(path) ||
-          (path === '/api/v1/public/programs/{code}' && method === 'get');
+          (path === '/api/v1/public/programs/{code}' && method === 'get') ||
+          // BRANCH-001: vista previa pública de la invitación (solo Origin).
+          path === '/api/v1/staff-invitations/preview';
         // NEXT-006: alta y transferencia, con o sin sesión del dispositivo.
         const device = [
           '/api/v1/customer/enrollments',
@@ -110,6 +112,15 @@ describe('OPS-001 AC-005 OpenAPI executable contract', () => {
             '/api/v1/customer/session',
             '/api/v1/customer/enrollments',
             '/api/v1/operator/scans',
+            // BRANCH-001: altas por sucursal; el servidor las hace atómicas.
+            '/api/v1/restaurants/{restaurantId}/branches',
+            '/api/v1/restaurants/{restaurantId}/staff',
+            '/api/v1/restaurants/{restaurantId}/staff/{targetId}/locations',
+            '/api/v1/restaurants/{restaurantId}/branches/{targetId}/invitations',
+            '/api/v1/restaurants/{restaurantId}/branch-invitations/{targetId}/renew',
+            '/api/v1/restaurants/{restaurantId}/branch-invitations/{targetId}/revoke',
+            '/api/v1/staff-invitations/preview',
+            '/api/v1/staff-invitations/accept',
             '/api/v1/operator/rewards/{rewardId}/resend',
             // NEXT-006: reintentos sin doble efecto (cerrada → 409, token consumido → 409).
             '/api/v1/customer/cards/{cardId}/close',

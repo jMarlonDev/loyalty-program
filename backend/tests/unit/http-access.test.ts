@@ -9,6 +9,7 @@ const publicRoutes = new Set([
   'GET /api/v1/public/programs/:code',
   'POST /api/v1/customer/enrollments',
   'POST /api/v1/customer/transfers/claim',
+  'POST /api/v1/staff-invitations/preview',
 ]);
 function fixture() {
   const query = vi.fn();

@@ -122,7 +122,7 @@ describe('DB-003 / BACKEND-001 AC-016: upgrade histórico', () => {
             'SELECT id FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(9);
+      ).toBe(10);
     } finally {
       await database.cleanup();
     }
@@ -208,7 +208,7 @@ describe('DB-003 / BACKEND-001 AC-016: upgrade histórico', () => {
             'SELECT * FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(9);
+      ).toBe(10);
       await database.pool.query(
         "INSERT INTO memberships (id,user_id,program_id,status,joined_at) VALUES ($1,$2,$3,'active',now())",
         [randomUUID(), fixture.userId, fixture.programId],
