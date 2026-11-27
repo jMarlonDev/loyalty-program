@@ -23,7 +23,7 @@ Pruebas futuras de integración/E2E usarán exclusivamente `TEST_DATABASE_URL`, 
 ## Casos mínimos derivados para próximas specs
 
 - BR-005: cliente y personal sin rol no suman sellos; Admin/Employee autorizado sí; rechazo de operaciones sobre otro restaurante.
-- BR-006: ambos roles pueden eliminar con confirmación válida del cliente; sin confirmación se rechaza y no cambia persistencia.
+- BR-006: Owner/Admin pueden eliminar con confirmación válida del cliente; sin confirmación se rechaza y no cambia persistencia.
 - BR-007: Employee no crea programas ni asigna roles ni elimina otros registros.
 - Integración: FK, CHECK y unicidad; atomicidad al registrar compra y saldo.
 - E2E: respuestas HTTP y efectos persistidos; decisiones de canje/confirmación deben estar resueltas antes de automatizarlas.

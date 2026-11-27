@@ -10,7 +10,12 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     tanstackStart(),
-    nitro({ preset: 'node-server', plugins: ['./src/server/nitro-close.ts'] }),
+    nitro({
+      preset: 'node-server',
+      plugins: ['./src/server/nitro-close.ts'],
+      serverDir: './server',
+      features: { websocket: true },
+    }),
     react(),
   ],
 });

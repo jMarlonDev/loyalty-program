@@ -4,7 +4,7 @@ Guía para esta aplicación, revisada el 2026-10-18. Los nombres de secciones de
 
 ## Diagnóstico inicial (histórico)
 
-En la revisión inicial, `npm run env:check` detectó que faltan `APP_ORIGIN`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` y `CARD_TOKEN_ENCRYPTION_KEY`. Sin ellas no se inicializan las operaciones reales. El último inventario remoto documentado tenía solo la migración 0000 y Google deshabilitado; no se volvió a consultar ni modificar el proyecto remoto en esta revisión. Comprobar su estado actual antes de aplicar cambios.
+Estado al cierre del 2026-10-18: configuración local válida, Supabase con migraciones 0000–0004 y tres cuentas de prueba reales verificadas por navegador. El cliente vio una compra del empleado como 1/5 sellos sin recargar. El origen local se cambió después a la IP LAN para desarrollo; no hay publicación HTTPS. Google/SMTP reales no se comprobaron en esta sesión. El informe vigente está en backend/docs/development-status.md.
 
 ## 1. Mantener Supabase Auth
 
@@ -103,7 +103,7 @@ La primera devuelve Google a Supabase; la segunda devuelve Supabase a la aplicac
 
 ## 9. Completar las tablas de negocio
 
-Auth por sí solo no permite listar tarjetas: PostgreSQL debe tener las migraciones **0000–0003**. En el SQL Editor puedes inspeccionar sin cambios:
+Auth por sí solo no permite listar tarjetas: PostgreSQL debe tener las migraciones **0000–0004**. En el SQL Editor puedes inspeccionar sin cambios:
 
 ```sql
 select id, hash, created_at
@@ -111,14 +111,14 @@ from drizzle.__drizzle_migrations
 order by created_at;
 ```
 
-Si solo está aplicada 0000, revisa el destino de `DATABASE_URL`, las migraciones del repositorio y el respaldo del proyecto. Desde la raíz, ejecuta:
+Si hay migraciones pendientes, revisa el destino de `DATABASE_URL`, las migraciones del repositorio y el respaldo del proyecto. Desde la raíz, ejecuta:
 
 ```sh
 npm run db:check
 npm run migrate
 ```
 
-`db:check` comprueba el historial local; **`migrate` modifica la base configurada** y aplica las pendientes. No ejecutes SQL copiado de tutoriales ni `schema push`. La migración 0003 rechaza contabilidad histórica incompatible; ante ese error hay que revisar los datos, no borrar historial. Estas migraciones no se aplicaron remotamente en esta revisión.
+`db:check` comprueba el historial local; **`migrate` modifica la base configurada** y aplica las pendientes. No ejecutes SQL copiado de tutoriales ni `schema push`. La migración 0003 rechaza contabilidad histórica incompatible; ante ese error hay que revisar los datos, no borrar historial. En el proyecto de esta sesión, 0000–0003 ya estaban aplicadas y 0004 se aplicó tras autorización expresa; su hash quedó verificado. Para cualquier otro destino revisa su propio historial.
 
 ## 10. Arrancar y probar las operaciones
 
@@ -148,7 +148,7 @@ Reinicia el proceso después de editar `.env`. Abre `http://localhost:3000` y co
 | Demasiados intentos | Esperar el límite de Auth; revisar rate limits/logs |
 | Enlace expirado | Mismo navegador, iniciar un flujo nuevo y abrir antes de 10 minutos |
 | Origen no permitido | No mezclar localhost, 127.0.0.1, puertos o HTTP/HTTPS |
-| Acceso correcto pero error de perfil/tarjetas | Conexión PostgreSQL y migraciones 0000–0003 |
+| Acceso correcto pero error de perfil/tarjetas | Conexión PostgreSQL y migraciones 0000–0004 |
 | Mis tarjetas vacío | Cuenta correcta e inscripción explícita en el enlace del programa |
 
 Las pruebas automáticas usan un proveedor aislado y PostgreSQL temporal; no certifican Google, SMTP ni el despliegue real. La guía deja esos pasos concretos para el propietario del proyecto.
@@ -156,3 +156,42 @@ Las pruebas automáticas usan un proveedor aislado y PostgreSQL temporal; no cer
 ## Acceso público y sesión persistente
 
 Para pasar de localhost al móvil desde cualquier lugar, seguir [despliegue HTTPS y ajustes de sesión](deployment.md#acceso-desde-celulares-fuera-de-la-red-local). Todavía no hay URL pública proporcionada. Un `env:check` satisfactorio solo demuestra formato de variables, no conexión DB ni OAuth real.
+
+## Cuentas de prueba reales
+
+[Guía de cuentas y creación desde la interfaz](testing-accounts.md). El comando
+`npm run accounts:seed` necesita una clave administrativa local, a diferencia
+del acceso normal de la aplicación. En Settings → API Keys, la pestaña Legacy
+anon, service_role API keys contiene service_role: guardarla como
+SUPABASE_SERVICE_ROLE_KEY en .env, nunca en una variable VITE_ ni en el chat.
+Consulta la [referencia oficial de claves](https://supabase.com/docs/guides/getting-started/api-keys).
+El manifiesto privado .cache/test-accounts.json contiene las credenciales de
+las cuentas creadas; no versionarlo.
+
+## Pruebas en la misma red WiFi
+
+Para la IP actual del computador, configura `APP_ORIGIN=http://192.168.33.9:3000`
+y ejecuta `npm run dev` (escucha en esa IP y mantiene puerto 3000 estricto).
+Reinicia Vite después de cambiar host u origen. Abre esa misma URL en el
+computador y en el celular. La sesión anterior de localhost no se comparte con
+la IP. Esta excepción HTTP acepta solamente IPv4 privadas y desarrollo.
+
+El inicio de sesión con correo/contraseña ya confirmados no depende del callback.
+Para registro con confirmación, recuperación y retorno de Google, añade
+`http://192.168.33.9:3000/api/session/callback` en **Authentication → URL
+Configuration → Redirect URLs**. Puedes usar la IP como Site URL del proyecto
+exclusivo de desarrollo. Conserva las URLs de producción si el proyecto también
+las necesita. La aplicación no cambia esta configuración remota automáticamente.
+El callback de Google Cloud hacia Supabase no cambia por usar otra IP local.
+
+Si la portada no carga, comprueba la IP actual, misma WiFi, aislamiento de
+clientes del router y permiso de entrada al puerto 3000 en el firewall. Si la
+portada carga pero el login devuelve 403 de origen, comprueba que
+`/api/public-config` devuelve exactamente la URL abierta. No desactives CSRF,
+CORS ni allowedHosts como solución.
+
+En HTTP LAN, el navegador no permite cámara web; pega el código de la tarjeta
+en Operaciones o prepara HTTPS confiable en ambos dispositivos. El botón de
+copiar puede ofrecer selección manual si el portapapeles seguro no está disponible.
+Esto no publica la aplicación en Internet. Referencias: [Vite server.host](https://vite.dev/config/server-options.html#server-host)
+y [requisitos de cámara del navegador](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia#privacy_and_security).

@@ -61,9 +61,9 @@ Se ejecutan en ese orden. Cada fase entrega especificación, pruebas y código p
 ### Permisos y estados
 
 - Resolver permisos en los casos de uso consultando identidad, estado y pertenencia; no aceptar roles del cuerpo ni de metadatos editables por el usuario.
-- Owner/Admin administra datos del restaurante, sucursales y programas. Solo Owner gestiona admins y suspende/reactiva el restaurante. Admin no modifica al Owner ni a otros Admin.
+- Owner/Admin administra datos del restaurante, sucursales y programas. Owner/Admin gestiona Admin/Employee y suspende/reactiva el restaurante, sin modificar la pertenencia Owner (revisión ROLE-001).
 - Mantener una relación de personal por usuario/restaurante, con historial. Verificar permisos actuales del emisor al aceptar invitaciones. Proteger al Owner frente a degradación o desactivación mediante gestión ordinaria de personal.
-- Los estados suspendido/desactivado bloquean las operaciones correspondientes. Restaurante suspendido bloquea fidelización; Owner conserva acceso para administrarlo y reactivarlo.
+- Los estados suspendido/desactivado bloquean las operaciones correspondientes. Restaurante suspendido bloquea fidelización; Owner/Admin conserva acceso para administrarlo y reactivarlo.
 - Programa `active` permite inscripción y compras; `paused` y `ended` las rechazan pero permiten entregar premios existentes. Pausar es reversible; finalizar es definitivo. La primera inscripción fija meta/premio incluso si luego se cierran todas las membresías.
 - Permitir varios programas por restaurante y participación en varios programas. Una persona/programa tiene una sola membresía no cerrada; repetir inscripción devuelve la existente.
 - Personal con identidad de cliente no acredita compras ni entrega premios a su propia membresía. El QR privado nunca sustituye permisos o consentimiento.
@@ -92,7 +92,7 @@ Se ejecutan en ese orden. Cada fase entrega especificación, pruebas y código p
 ### Cierre confirmado
 
 - Mostrar al cliente saldo y premios que perderá. Consentimiento vinculado a titular, tarjeta, versión de beneficios y caducidad.
-- Owner/Admin/Employee autorizado ejecuta el cierre; el cliente puede revocar el consentimiento antes de consumirse.
+- Owner/Admin autorizado ejecuta el cierre; el cliente puede revocar el consentimiento antes de consumirse.
 - Rechazar consentimientos ajenos, caducados, revocados, usados o desactualizados.
 - Consumir consentimiento, cancelar premios pendientes, llevar saldo a cero mediante movimientos, cerrar membresía/tarjeta e invalidar QR en una transacción.
 - Conservar compras, contabilidad, premios y evidencia. El cierre no borra identidad ni membresías de otros programas.

@@ -22,7 +22,7 @@ El QR público de inscripción y el token privado de tarjeta son distintos. La p
 
 ## Datos y operación
 
-Las migraciones 0000–0003 no se reescriben. El JSON original eliminado por el usuario permanece representado por el snapshot 0000 y decisiones DB-001 a DB-004. La autorización e idempotencia viven en casos de uso y transacciones, no solo constraints.
+Las migraciones 0000–0003 no se reescriben. El JSON original eliminado por el usuario permanece representado por el snapshot 0000 y decisiones DB-001 a DB-005. La migración incremental 0004 retira `restaurants.slug` conforme a [DB-005](decisions/DB-005.md); mantiene el UUID interno, las relaciones y los códigos QR. La autorización e idempotencia viven en casos de uso y transacciones, no solo constraints.
 
 Tests de dominio, integración PostgreSQL, HTTP, UI y navegador usan destinos locales aislados. La composición de producción y la del harness recorren el mismo adaptador Supabase; solo el servidor externo de Auth se simula durante tests. Migraciones de release son explícitas; el arranque no modifica esquema. Nitro cierra el pool mediante su hook close.
 
