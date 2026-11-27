@@ -51,6 +51,7 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
         users: ['must_change_password'],
         locations: ['physical_point'],
         loyalty_cards: ['version'],
+        loyalty_programs: ['stamp_cooldown_minutes'],
         rewards: ['accounting_mode', 'cycle_id'],
         restaurant_employees: ['phone', 'can_transfer_cards'],
         memberships: [
@@ -123,7 +124,7 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
             'SELECT * FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(10);
+      ).toBe(11);
     } finally {
       await database.cleanup();
     }
@@ -264,7 +265,7 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
             'SELECT * FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(10);
+      ).toBe(11);
       expect(
         (
           await restored.pool.query(

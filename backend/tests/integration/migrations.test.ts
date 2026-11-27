@@ -30,7 +30,7 @@ describe('TESTDB-001: migraciones PostgreSQL reales', () => {
     const history = await database.pool.query(
       'SELECT * FROM drizzle.__drizzle_migrations',
     );
-    expect(history.rowCount).toBe(10);
+    expect(history.rowCount).toBe(11);
     expect(
       (await database.pool.query('SELECT id FROM users WHERE id = $1', [id]))
         .rowCount,

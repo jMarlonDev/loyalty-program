@@ -273,7 +273,9 @@ const graph: Record<string, Record<string, unknown>> = {
 const checkName = (table: string, column: string) =>
   table === 'memberships' && column === 'previous_cards_count'
     ? 'memberships_previous_cards_check'
-    : `${table}_${column}_check`;
+    : table === 'loyalty_programs' && column === 'stamp_cooldown_minutes'
+      ? 'loyalty_programs_cooldown_check'
+      : `${table}_${column}_check`;
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 const checks: [string, string, unknown][] = [
   ['restaurants', 'status', 'invalid'],
@@ -287,6 +289,7 @@ const checks: [string, string, unknown][] = [
   ['enrollment_attempts', 'scope', 'invalid'],
   ['loyalty_programs', 'status', 'invalid'],
   ['loyalty_programs', 'stamps_required', 0],
+  ['loyalty_programs', 'stamp_cooldown_minutes', -1],
   ['loyalty_cards', 'status', 'invalid'],
   ['loyalty_cards', 'version', -1],
   ['purchases', 'stamps_earned', 0],

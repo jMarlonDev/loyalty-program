@@ -40,11 +40,8 @@ describe('NEXT-001/004 OpenAPI security contracts', () => {
       'sale_reference',
       'location_id',
     ]);
-    expect(purchase?.required).toEqual([
-      'restaurant_id',
-      'token',
-      'sale_reference',
-    ]);
+    // D-06: la referencia de ticket es opcional.
+    expect(purchase?.required).toEqual(['restaurant_id', 'token']);
     expect(
       (schemas().RedemptionInput?.properties as JsonObject)?.confirm,
     ).toEqual({ type: 'boolean', const: true });

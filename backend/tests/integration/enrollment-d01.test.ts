@@ -62,6 +62,8 @@ describe('NEXT-006 D-01 inscripción por teléfono, cierre y transferencia', () 
     app = createApp({
       pool: database.pool,
       cardTokenEncryptionKey: 'ab'.repeat(32),
+      // D-06: estas pruebas encadenan compras; la espera se prueba en stamps-d06.
+      stampCooldownMinutes: 0,
       publicOrigin: 'https://loyalty.test',
       now: () => new Date(Date.now() + skewMs),
       identityProvider: {

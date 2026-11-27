@@ -21,6 +21,8 @@ describe('NEXT-001/003 ciclo completo HTTP + PostgreSQL', () => {
     const app = createApp({
       pool: database.pool,
       cardTokenEncryptionKey: 'ab'.repeat(32),
+      // D-06: estas pruebas encadenan compras; la espera se prueba en stamps-d06.
+      stampCooldownMinutes: 0,
       publicOrigin: 'https://loyalty.test',
       identityProvider: {
         async verifyAccessToken(token) {
@@ -242,7 +244,12 @@ describe('NEXT-001/003 ciclo completo HTTP + PostgreSQL', () => {
       201,
     );
     expect(final.body.data.card.balance).toBe(2);
-    expect(final.body.data.card.cycle.state).toBe('reward_available');
+    // D-06: la meta deja el premio pendiente y reabre la tarjeta en 0.
+    expect(final.body.data.card.cycle).toMatchObject({
+      number: 2,
+      state: 'collecting',
+      stamps: 0,
+    });
     const reward = final.body.data.card.rewards[0];
     expect(reward.status).toBe('available');
     const voucherToken = reward.voucher.token;
@@ -331,7 +338,11 @@ describe('NEXT-001/003 ciclo completo HTTP + PostgreSQL', () => {
       201,
     );
     expect(next.body.data.card.balance).toBe(2);
-    expect(next.body.data.card.cycle.number).toBe(2);
-    expect(next.body.data.card.cycle.state).toBe('reward_available');
+    expect(next.body.data.card.cycle).toMatchObject({
+      number: 3,
+      state: 'collecting',
+      stamps: 0,
+    });
+    expect(next.body.data.card.rewards[0].status).toBe('available');
   });
 });

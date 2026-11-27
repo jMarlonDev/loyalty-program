@@ -23,6 +23,7 @@ describe('DB-003: evolución incremental funcional', () => {
         'background_color',
         'text_color',
         'card_message',
+        'stamp_cooldown_minutes',
       ],
       memberships: ['closed_at', 'benefits_version'],
       loyalty_cards: ['qr_token_encrypted'],

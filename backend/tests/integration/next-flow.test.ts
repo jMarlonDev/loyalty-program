@@ -82,6 +82,8 @@ describe('NEXT-001/003 HTTP + PostgreSQL end-to-end', () => {
     app = createApp({
       pool: database.pool,
       cardTokenEncryptionKey: 'ab'.repeat(32),
+      // D-06: estas pruebas encadenan compras; la espera se prueba en stamps-d06.
+      stampCooldownMinutes: 0,
       publicOrigin: 'https://loyalty.test',
       identityProvider: {
         async verifyAccessToken(token) {
@@ -178,7 +180,13 @@ describe('NEXT-001/003 HTTP + PostgreSQL end-to-end', () => {
       if (index === 3) {
         rewardId = data.card.rewards[0].id;
         voucherToken = data.card.rewards[0].voucher.token;
-        expect(data.card.cycle.state).toBe('reward_available');
+        // D-06: al completar la meta se abre un ciclo nuevo en 0 y el premio queda pendiente.
+        expect(data.card.cycle).toMatchObject({
+          number: 2,
+          state: 'collecting',
+          stamps: 0,
+        });
+        expect(data.card.rewards[0].status).toBe('available');
       }
     }
 
@@ -367,7 +375,7 @@ describe('NEXT-001/003 HTTP + PostgreSQL end-to-end', () => {
       body: {
         restaurant_id: ownerOnlyRestaurant,
         purpose: 'card',
-        token: 'a'.repeat(43),
+        token: `c1${'a'.repeat(48)}`,
       },
     });
     expect(scan.status).toBe(403);
@@ -376,7 +384,7 @@ describe('NEXT-001/003 HTTP + PostgreSQL end-to-end', () => {
       key: 'owner-only',
       body: {
         restaurant_id: ownerOnlyRestaurant,
-        token: 'a'.repeat(43),
+        token: `c1${'a'.repeat(48)}`,
         sale_reference: 'OWNER-ONLY',
       },
     });

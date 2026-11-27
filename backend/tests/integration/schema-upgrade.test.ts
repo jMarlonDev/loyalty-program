@@ -94,7 +94,7 @@ describe('DB-003 / BACKEND-001 AC-016: upgrade histórico', () => {
         database.pool.query(`SELECT jsonb_build_object(
         'restaurant', (SELECT to_jsonb(r) - 'slug' - 'owner_user_id' FROM restaurants r WHERE id='${fixture.restaurantId}'),
         'owner', (SELECT to_jsonb(e) - 'phone' - 'can_transfer_cards' FROM restaurant_employees e WHERE restaurant_id='${fixture.restaurantId}'),
-        'program', (SELECT to_jsonb(p) FROM loyalty_programs p WHERE id='${fixture.programId}'),
+        'program', (SELECT to_jsonb(p) - 'stamp_cooldown_minutes' FROM loyalty_programs p WHERE id='${fixture.programId}'),
         'membership', (SELECT to_jsonb(m) - 'is_reenrollment' - 'previous_cards_count' - 'close_reason' FROM memberships m WHERE id='${fixture.membershipId}'),
         'card', (SELECT to_jsonb(c) - 'version' FROM loyalty_cards c WHERE membership_id='${fixture.membershipId}')
       ) AS data`);
@@ -122,7 +122,7 @@ describe('DB-003 / BACKEND-001 AC-016: upgrade histórico', () => {
             'SELECT id FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(10);
+      ).toBe(11);
     } finally {
       await database.cleanup();
     }
@@ -208,7 +208,7 @@ describe('DB-003 / BACKEND-001 AC-016: upgrade histórico', () => {
             'SELECT * FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(10);
+      ).toBe(11);
       await database.pool.query(
         "INSERT INTO memberships (id,user_id,program_id,status,joined_at) VALUES ($1,$2,$3,'active',now())",
         [randomUUID(), fixture.userId, fixture.programId],
