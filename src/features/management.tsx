@@ -12,6 +12,7 @@ import { PublicShareQr } from '../components/public-share-qr';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useAction, useCollection } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import type { Employee, Invitation, Location, Restaurant } from '../lib/types';
 import { statusLabel } from '../lib/utils';
 export function RestaurantForm({
@@ -28,7 +29,6 @@ export function RestaurantForm({
         path: '/restaurants',
         body: {
           name: data.get('name'),
-          slug: data.get('slug'),
           email: data.get('email') || null,
           phone: data.get('phone') || null,
         },
@@ -50,21 +50,6 @@ export function RestaurantForm({
             required
             maxLength={255}
             placeholder="Punto de encuentro"
-          />
-        )}
-      </Field>
-      <Field
-        label="Identificador único"
-        hint="Letras minúsculas, números y guiones."
-      >
-        {(id) => (
-          <Input
-            id={id}
-            name="slug"
-            required
-            pattern="[a-z0-9]+(-[a-z0-9]+)*"
-            placeholder="punto-de-encuentro"
-            maxLength={255}
           />
         )}
       </Field>
@@ -226,11 +211,12 @@ export function LocationsPanel({
 }
 export function StaffPanel({
   restaurantId,
-  role,
+  actorRole,
 }: {
   restaurantId: string;
-  role: string;
+  actorRole: string;
 }) {
+  const auth = useAuth();
   const employees = useCollection<Employee>(
       `/restaurants/${restaurantId}/employees`,
     ),
@@ -241,15 +227,28 @@ export function StaffPanel({
     update = useAction();
   const [showForm, setShowForm] = useState(false),
     [created, setCreated] = useState<Invitation | null>(null),
-    [editing, setEditing] = useState<Employee | null>(null);
+    [editing, setEditing] = useState<Employee | null>(null),
+    [inviteError, setInviteError] = useState<unknown>(null);
   async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const email = String(data.get('email') ?? '')
+      .trim()
+      .toLowerCase();
+    setInviteError(null);
+    if (email === auth.user?.email.trim().toLowerCase()) {
+      setInviteError(
+        new Error(
+          'Ya puedes registrar compras y entregar premios con tu rol actual. Para invitar a otra persona, escribe su correo electrónico.',
+        ),
+      );
+      return;
+    }
     try {
       setCreated(
         await action.mutateAsync({
           path: `/restaurants/${restaurantId}/invitations`,
-          body: { email: data.get('email'), role: data.get('role') },
+          body: { email, role: data.get('role') },
         }),
       );
       setShowForm(false);
@@ -274,7 +273,15 @@ export function StaffPanel({
         title="Tu equipo"
         description="Personas de confianza, con los permisos que necesitan."
         action={
-          <Button onClick={() => setShowForm(!showForm)}>
+          <Button
+            disabled={action.isPending}
+            onClick={() => {
+              setShowForm(!showForm);
+              setCreated(null);
+              setInviteError(null);
+              action.reset();
+            }}
+          >
             <Plus size={17} />
             Invitar persona
           </Button>
@@ -289,19 +296,43 @@ export function StaffPanel({
       />
       <ErrorNotice error={update.error} />
       {showForm && (
-        <form className="panel stack narrow-panel" onSubmit={invite}>
+        <form
+          className="panel stack narrow-panel"
+          onSubmit={invite}
+          autoComplete="off"
+        >
           <h2>Invitar a tu equipo</h2>
           <Field label="Correo electrónico">
-            {(id) => <Input id={id} name="email" type="email" required />}
+            {(id) => (
+              <Input
+                id={id}
+                name="email"
+                type="email"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                placeholder="persona@correo.com"
+                maxLength={254}
+                required
+              />
+            )}
           </Field>
-          <RoleSelect owner={role === 'owner'} />
+          <RoleSelect canManage={['owner', 'admin'].includes(actorRole)} />
           <p className="field-hint">
             Comparte el enlace con esa persona. Deberá entrar con el mismo
             correo verificado.
           </p>
-          <ErrorNotice error={action.error} />
+          <ErrorNotice error={inviteError || action.error} />
           <Button disabled={action.isPending} type="submit">
             {action.isPending ? 'Creando…' : 'Crear invitación'}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={action.isPending}
+            onClick={() => setShowForm(false)}
+          >
+            Cancelar
           </Button>
         </form>
       )}
@@ -317,7 +348,10 @@ export function StaffPanel({
       {editing && (
         <form className="panel stack narrow-panel" onSubmit={saveEmployee}>
           <h2>Permisos del integrante</h2>
-          <RoleSelect owner={role === 'owner'} value={editing.role} />
+          <RoleSelect
+            canManage={['owner', 'admin'].includes(actorRole)}
+            value={editing.role}
+          />
           <Field label="Estado">
             {(id) => (
               <select
@@ -365,7 +399,7 @@ export function StaffPanel({
               </p>
             </div>
             {employee.role !== 'owner' &&
-              (role === 'owner' || employee.role === 'employee') && (
+              ['owner', 'admin'].includes(actorRole) && (
                 <Button
                   variant="secondary"
                   onClick={() => setEditing(employee)}
@@ -389,7 +423,7 @@ export function StaffPanel({
               </p>
             </div>
             {invitation.status === 'pending' &&
-              (role === 'owner' || invitation.role === 'employee') && (
+              ['owner', 'admin'].includes(actorRole) && (
                 <Button
                   variant="ghost"
                   disabled={update.isPending}
@@ -408,25 +442,25 @@ export function StaffPanel({
       {!invitations.isLoading &&
         !invitations.error &&
         !invitations.items.length && (
-          <p className="muted">Todavía no has enviado invitaciones.</p>
+          <p className="muted">Todavía no has creado invitaciones.</p>
         )}
       <MoreButton {...invitations} />
     </>
   );
 }
 function RoleSelect({
-  owner,
+  canManage,
   value = 'employee',
 }: {
-  owner: boolean;
+  canManage: boolean;
   value?: string;
 }) {
   return (
     <Field label="Rol">
       {(id) => (
         <select id={id} className="input" name="role" defaultValue={value}>
-          <option value="employee">Empleado · compras y premios</option>
-          {owner && (
+          <option value="employee">Empleado · escanear y sumar sellos</option>
+          {canManage && (
             <option value="admin">Administrador · programas y equipo</option>
           )}
         </select>
@@ -448,7 +482,7 @@ export function RestaurantSettings({ restaurant }: { restaurant: Restaurant }) {
           name: data.get('name'),
           email: data.get('email') || null,
           phone: data.get('phone') || null,
-          ...(restaurant.actor_role === 'owner'
+          ...(['owner', 'admin'].includes(restaurant.actor_role ?? '')
             ? { status: data.get('status') }
             : {}),
         },
@@ -491,7 +525,7 @@ export function RestaurantSettings({ restaurant }: { restaurant: Restaurant }) {
             />
           )}
         </Field>
-        {restaurant.actor_role === 'owner' && (
+        {['owner', 'admin'].includes(restaurant.actor_role ?? '') && (
           <Field
             label="Estado"
             hint="Suspender deshabilita las operaciones del restaurante."

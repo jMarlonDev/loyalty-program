@@ -2,14 +2,12 @@ import {
   ArrowRight,
   CreditCard,
   LogOut,
-  MapPin,
   Plus,
   ScanLine,
-  Settings,
   Store,
   Users,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Brand,
   Empty,
@@ -23,51 +21,52 @@ import { useCollection } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { Restaurant } from '../lib/types';
 import { statusLabel } from '../lib/utils';
-import {
-  LocationsPanel,
-  RestaurantForm,
-  RestaurantSettings,
-  StaffPanel,
-} from './management';
+import { CustomerCardsPage } from './customer';
+import { RestaurantForm } from './management';
 import { OperationsPanel } from './operations';
 import { ProgramsPanel } from './programs';
+import { TeamPanel } from './team';
+
 export function WorkspacePage() {
-  const auth = useAuth(),
-    restaurants = useCollection<Restaurant>(auth.user ? '/restaurants' : null);
-  const [selected, setSelected] = useState(''),
-    [tab, setTab] = useState('programs'),
-    [creating, setCreating] = useState(false),
-    [logoutError, setLogoutError] = useState<unknown>(null);
+  const auth = useAuth();
+  const restaurants = useCollection<Restaurant>(
+    auth.user ? '/restaurants' : null,
+  );
+  const [selected, setSelected] = useState('');
+  const [tab, setTab] = useState('programs');
+  const [creating, setCreating] = useState(false);
+  const [businessOnboarding, setBusinessOnboarding] = useState(false);
+  const [logoutError, setLogoutError] = useState<unknown>(null);
+  useEffect(() => {
+    setBusinessOnboarding(
+      new URLSearchParams(window.location.search).get('onboarding') ===
+        'business',
+    );
+  }, []);
   const restaurant =
     restaurants.items.find((item) => item.id === selected) ??
     restaurants.items[0];
-  const role = restaurant?.actor_role ?? 'employee',
-    canManage = ['owner', 'admin'].includes(role);
+  const role = restaurant?.actor_role ?? 'employee';
+  const canManage = ['owner', 'admin'].includes(role);
   const nav = [
     ...(canManage
-      ? [{ id: 'programs', label: 'Programas', icon: CreditCard }]
+      ? [{ id: 'programs', label: 'Mi programa', icon: CreditCard }]
       : []),
-    { id: 'operations', label: 'Operaciones', icon: ScanLine },
-    { id: 'locations', label: 'Sucursales', icon: MapPin },
-    ...(canManage
-      ? [
-          { id: 'staff', label: 'Equipo', icon: Users },
-          { id: 'settings', label: 'Ajustes', icon: Settings },
-        ]
-      : []),
+    { id: 'operations', label: 'Escáner', icon: ScanLine },
+    ...(canManage ? [{ id: 'team', label: 'Equipo', icon: Users }] : []),
   ];
-  const activeTab =
-    !canManage && ['staff', 'settings', 'programs'].includes(tab)
-      ? 'operations'
-      : tab;
+  const activeTab = canManage ? tab : 'operations';
+  const showCreation = canManage && creating;
+
   async function logout() {
     try {
       await auth.logout();
       window.location.assign('/');
-    } catch (e) {
-      setLogoutError(e);
+    } catch (error) {
+      setLogoutError(error);
     }
   }
+
   if (auth.loading)
     return (
       <main id="main-content" className="standalone">
@@ -87,19 +86,38 @@ export function WorkspacePage() {
             title="El lugar de tus mejores clientes"
             action={
               <Button asChild>
-                <a href="/auth?next=%2Fapp">
+                <a
+                  href={`/auth?next=${encodeURIComponent(businessOnboarding ? '/app?onboarding=business' : '/app')}`}
+                >
                   Iniciar sesión
                   <ArrowRight size={17} />
                 </a>
               </Button>
             }
           >
-            Entra a tu cuenta para gestionar tu restaurante, tus programas y tu
-            equipo.
+            Entra a tu cuenta para gestionar tu programa, tu equipo y tus
+            operaciones.
           </Empty>
         )}
       </main>
     );
+  if (restaurants.isLoading)
+    return (
+      <main id="main-content" className="standalone">
+        <Loading label="Preparando tu espacio…" />
+      </main>
+    );
+  if (restaurants.error && !restaurant)
+    return (
+      <main id="main-content" className="standalone">
+        <Brand />
+        <ErrorNotice
+          error={restaurants.error}
+          retry={() => void restaurants.refetch()}
+        />
+      </main>
+    );
+  if (!restaurant && !businessOnboarding) return <CustomerCardsPage />;
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -136,9 +154,9 @@ export function WorkspacePage() {
             <button
               type="button"
               key={item.id}
-              className={activeTab === item.id && !creating ? 'active' : ''}
+              className={activeTab === item.id && !showCreation ? 'active' : ''}
               aria-current={
-                activeTab === item.id && !creating ? 'page' : undefined
+                activeTab === item.id && !showCreation ? 'page' : undefined
               }
               onClick={() => {
                 setTab(item.id);
@@ -151,14 +169,19 @@ export function WorkspacePage() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button type="button" onClick={() => setCreating(true)}>
-            <Plus size={18} />
-            Nuevo restaurante
-          </button>
-          <a href="/cards">
-            <CreditCard size={18} />
-            Mis tarjetas personales
-          </a>
+          <p className="field-hint break-all">{auth.user.email}</p>
+          {canManage && (
+            <>
+              <button type="button" onClick={() => setCreating(true)}>
+                <Plus size={18} />
+                Nuevo restaurante
+              </button>
+              <a href="/cards">
+                <CreditCard size={18} />
+                Mis tarjetas personales
+              </a>
+            </>
+          )}
           <button type="button" onClick={() => void logout()}>
             <LogOut size={18} />
             Cerrar sesión
@@ -183,17 +206,18 @@ export function WorkspacePage() {
           />
           {restaurants.isLoading ? (
             <Loading />
-          ) : creating || (!restaurants.error && !restaurant) ? (
+          ) : showCreation ||
+            (!restaurants.error && !restaurant && businessOnboarding) ? (
             <>
               <PageTitle
                 title="Aquí empiezan las buenas visitas"
-                description="Crea tu restaurante y dale forma a tu primer programa."
+                description="Crea tu restaurante y dale forma a tu programa."
               />
               <RestaurantForm
                 onCreated={(result) => {
                   setSelected(result.id);
                   setCreating(false);
-                  setTab('locations');
+                  setTab('programs');
                 }}
               />
             </>
@@ -207,22 +231,10 @@ export function WorkspacePage() {
                   />
                 )}
                 {activeTab === 'operations' && (
-                  <OperationsPanel
-                    restaurantId={restaurant.id}
-                    canManage={canManage}
-                  />
+                  <OperationsPanel restaurantId={restaurant.id} />
                 )}
-                {activeTab === 'locations' && (
-                  <LocationsPanel
-                    restaurantId={restaurant.id}
-                    canManage={canManage}
-                  />
-                )}
-                {activeTab === 'staff' && canManage && (
-                  <StaffPanel restaurantId={restaurant.id} role={role} />
-                )}
-                {activeTab === 'settings' && canManage && (
-                  <RestaurantSettings restaurant={restaurant} />
+                {activeTab === 'team' && canManage && (
+                  <TeamPanel restaurantId={restaurant.id} />
                 )}
               </div>
             )

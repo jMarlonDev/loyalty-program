@@ -86,7 +86,6 @@ export async function lockRestaurant(client: PoolClient, id: string) {
   const result = await client.query<{
     id: string;
     name: string;
-    slug: string;
     status: string;
   }>('SELECT * FROM restaurants WHERE id=$1 FOR UPDATE', [id]);
   const restaurant = result.rows[0];

@@ -65,13 +65,23 @@ export class PgStaffRepository implements StaffRepository {
         await lockRestaurant(client, command.restaurantId);
       await lockActor(client, command.actor.id);
       let staff: StaffAccess | undefined;
-      if (command.action !== 'restaurant.create') {
+      if (command.action === 'restaurant.create') {
+        const memberships = await client.query<{ role: StaffRole }>(
+          `${staffSelection} WHERE e.user_id=$1 AND e.status='active' FOR SHARE OF e`,
+          [command.actor.id],
+        );
+        if (
+          memberships.rows.length > 0 &&
+          memberships.rows.every((membership) => membership.role === 'employee')
+        )
+          throw forbidden();
+      } else {
         staff = await requireStaff(
           client,
           command.actor.id,
           command.restaurantId as string,
           ['owner', 'admin'],
-          { allowSuspendedOwner: true },
+          { allowSuspendedAdministration: true },
         );
         await this.authorizeTarget(client, command, staff);
       }
@@ -100,7 +110,7 @@ export class PgStaffRepository implements StaffRepository {
           command.actor.id,
           result.data.id,
           ['owner'],
-          { allowSuspendedOwner: true },
+          { allowSuspendedAdministration: true },
         );
       }
       return result;
@@ -120,13 +130,6 @@ export class PgStaffRepository implements StaffRepository {
     command: StaffCommand,
     staff: StaffAccess,
   ) {
-    if (
-      command.action === 'restaurant.update' &&
-      Object.hasOwn(command.input, 'status') &&
-      staff.role !== 'owner'
-    ) {
-      throw forbidden();
-    }
     if (command.action === 'employee.update') {
       const result = await client.query<StaffAccess>(
         `${staffSelection} WHERE e.id=$1 AND e.restaurant_id=$2`,
@@ -211,16 +214,9 @@ export class PgStaffRepository implements StaffRepository {
     switch (command.action) {
       case 'restaurant.create': {
         const result = await client.query<Row>(
-          `INSERT INTO restaurants(id,name,slug,email,phone,status,created_at,updated_at)
-          VALUES($1,$2,$3,$4,$5,'active',$6,$6) RETURNING *`,
-          [
-            id,
-            input.name,
-            input.slug,
-            input.email ?? null,
-            input.phone ?? null,
-            now,
-          ],
+          `INSERT INTO restaurants(id,name,email,phone,status,created_at,updated_at)
+          VALUES($1,$2,$3,$4,'active',$5,$5) RETURNING *`,
+          [id, input.name, input.email ?? null, input.phone ?? null, now],
         );
         await client.query(
           `INSERT INTO restaurant_employees(id,user_id,restaurant_id,role_id,status,joined_at,created_at,updated_at)
@@ -462,7 +458,7 @@ export class PgStaffRepository implements StaffRepository {
       if (query.collection === 'restaurants') {
         sql = `SELECT r.*,role.rol_type AS actor_role FROM restaurants r JOIN restaurant_employees e ON e.restaurant_id=r.id
           JOIN roles role ON role.id=e.role_id WHERE e.user_id=$1 AND e.status='active'
-          AND (r.status='active' OR role.rol_type='owner') AND ($2::uuid IS NULL OR r.id>$2)
+          AND (r.status='active' OR role.rol_type IN ('owner','admin')) AND ($2::uuid IS NULL OR r.id>$2)
           ORDER BY r.id LIMIT $3`;
       } else {
         const allowed: StaffRole[] = ['restaurant', 'locations'].includes(
@@ -470,20 +466,24 @@ export class PgStaffRepository implements StaffRepository {
         )
           ? ['owner', 'admin', 'employee']
           : ['owner', 'admin'];
-        await requireStaff(
+        const staff = await requireStaff(
           client,
           query.actor.id,
           query.restaurantId as string,
           allowed,
-          { allowSuspendedOwner: true },
+          { allowSuspendedAdministration: true },
         );
         if (query.collection === 'restaurant') {
           return json({
-            data: (
-              await client.query<Row>('SELECT * FROM restaurants WHERE id=$1', [
-                query.restaurantId,
-              ])
-            ).rows[0],
+            data: {
+              ...(
+                await client.query<Row>(
+                  'SELECT * FROM restaurants WHERE id=$1',
+                  [query.restaurantId],
+                )
+              ).rows[0],
+              actor_role: staff.role,
+            },
           });
         }
         sql =

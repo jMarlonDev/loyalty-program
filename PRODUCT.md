@@ -12,7 +12,7 @@ TanStack Start fullstack, React, TanStack Query, componentes shadcn/ui sobre Rad
 
 ## Users
 
-Dueños y administradores gestionan restaurantes, sucursales, personal y programas. Empleados registran compras y entregan premios. Clientes se inscriben desde un enlace o QR y consultan su tarjeta en el móvil.
+Dueños y administradores gestionan restaurantes, sucursales, personal y programas; también registran compras, entregan premios y completan cierres autorizados. Empleados escanean el QR del cliente y registran compras para sumar sellos. Clientes se inscriben desde un enlace o QR y consultan su tarjeta en el móvil con actualización automática de sellos.
 
 ## Product Purpose
 
@@ -40,6 +40,8 @@ Especificaciones, OpenAPI y pruebas del backend; capturas aportadas por el usuar
 - Mostrar resultados reales y estados vacíos explícitos.
 - Hacer cada acción operable con una mano y teclado.
 - Separar la vista de cliente de la gestión del restaurante.
+- Resolver el espacio inicial por pertenencias reales: personal a operaciones o administración; clientes a sus tarjetas. El alta de un negocio parte de una intención explícita y no aparece a empleados.
+- Permitir a Owner/Admin invitar y administrar Admin/Employee, conservando la protección del propietario y los permisos independientes por restaurante.
 
 ## Accessibility & Inclusion
 

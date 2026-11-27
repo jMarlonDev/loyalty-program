@@ -87,15 +87,10 @@ const schemas: Record<string, Schema> = {
   RestaurantCreate: object(
     {
       name: text(),
-      slug: {
-        type: 'string',
-        maxLength: 255,
-        pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$',
-      },
       email,
       phone,
     },
-    ['name', 'slug'],
+    ['name'],
   ),
   RestaurantPatch: optionalPatch({
     name: text(),
@@ -106,7 +101,6 @@ const schemas: Record<string, Schema> = {
   Restaurant: object({
     id: uuid,
     name: text(),
-    slug: text(),
     email,
     phone,
     status: enumeration('active', 'suspended'),
@@ -392,12 +386,11 @@ const examples: Record<string, unknown> = {
     created_at: at,
     updated_at: at,
   },
-  RestaurantCreate: { name: 'Café del Centro', slug: 'cafe-del-centro' },
+  RestaurantCreate: { name: 'Restaurante del Centro' },
   RestaurantPatch: { status: 'suspended' },
   Restaurant: {
     id,
-    name: 'Café del Centro',
-    slug: 'cafe-del-centro',
+    name: 'Restaurante del Centro',
     email: null,
     phone: null,
     status: 'active',
@@ -690,7 +683,7 @@ operation(
   'post',
   '/api/v1/restaurants',
   'createRestaurant',
-  'Crea restaurante y Owner atómicamente',
+  'Crea restaurante y Owner atómicamente; Employee sin otro rol administrativo no puede',
   {
     input: 'RestaurantCreate',
     output: 'Restaurant',
@@ -709,14 +702,14 @@ operation(
   'get',
   '/api/v1/restaurants/{restaurantId}',
   'getRestaurant',
-  'Consulta restaurante del personal autenticado',
-  { output: 'Restaurant' },
+  'Consulta restaurante y rol verificado del personal autenticado',
+  { output: 'RestaurantWithRole' },
 );
 operation(
   'patch',
   '/api/v1/restaurants/{restaurantId}',
   'patchRestaurant',
-  'Owner/Admin edita restaurante; solo Owner cambia estado',
+  'Owner/Admin edita restaurante y su estado',
   { input: 'RestaurantPatch', output: 'Restaurant', idempotent: true },
 );
 operation(
@@ -756,7 +749,7 @@ operation(
   'patch',
   '/api/v1/restaurants/{restaurantId}/employees/{targetId}',
   'patchEmployee',
-  'Gestiona personal respetando jerarquía y protegiendo Owner',
+  'Owner/Admin gestiona Admin/Employee protegiendo Owner',
   { input: 'EmployeePatch', output: 'Employee', idempotent: true },
 );
 operation(
@@ -922,7 +915,7 @@ operation(
   'post',
   '/api/v1/restaurants/{id}/rewards/{rewardId}/redeem',
   'redeemReward',
-  'Entrega premio una vez, sin descontar sellos nuevamente',
+  'Owner/Admin entrega premio una vez, sin descontar sellos nuevamente',
   { input: 'RedeemInput', output: 'RedeemResult', idempotent: true },
 );
 operation(
@@ -957,7 +950,7 @@ operation(
   'post',
   '/api/v1/restaurants/{id}/cards/{cardId}/close',
   'closeCard',
-  'Personal ejecuta cierre lógico con consentimiento vigente',
+  'Owner/Admin ejecuta cierre lógico con consentimiento vigente',
   { input: 'CloseInput', output: 'CloseResult', idempotent: true },
 );
 

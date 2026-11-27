@@ -1,5 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+
+const useHttps = process.env.LOYALTY_BROWSER_HTTPS === '1';
+const origin = useHttps ? 'https://127.0.0.1:3102' : 'http://127.0.0.1:3100';
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.spec.ts',
@@ -11,7 +14,8 @@ export default defineConfig({
   outputDir: '../../test-results',
   use: {
     channel: 'chromium',
-    baseURL: 'http://127.0.0.1:3100',
+    baseURL: origin,
+    ignoreHTTPSErrors: useHttps,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
@@ -22,7 +26,8 @@ export default defineConfig({
   webServer: {
     cwd: fileURLToPath(new URL('../../', import.meta.url)),
     command: 'node --import tsx tests/browser/server.ts',
-    url: 'http://127.0.0.1:3100',
+    url: origin,
+    ignoreHTTPSErrors: useHttps,
     reuseExistingServer: false,
     timeout: 120000,
     gracefulShutdown: { signal: 'SIGTERM', timeout: 10000 },

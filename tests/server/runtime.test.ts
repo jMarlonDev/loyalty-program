@@ -69,6 +69,7 @@ describe('STACK-001 integración del transporte en Start', () => {
           Response.json({ method: input.method, body: await input.json() }),
       },
       origin: 'http://localhost',
+      development: true,
     });
     const response = await bridge(request);
     expect(await response.json()).toEqual({
@@ -108,6 +109,7 @@ describe('STACK-001 integración del transporte en Start', () => {
     const bridge = createApiBridge({
       app: { fetch },
       origin: 'http://localhost',
+      development: true,
     });
     const request = new Request('http://localhost/api/v1/me', {
       headers: { 'x-forwarded-for': 'attacker' },

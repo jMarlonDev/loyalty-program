@@ -14,9 +14,9 @@ Interfaz de fidelización general, sin ambientación de un comercio concreto. La
 
 Landing: título directo, entradas «Mis tarjetas» y «Administrar», y tarjeta ilustrativa «Club Vuelta» claramente rotulada como ejemplo. Iconos Lucide de retorno, tarjeta, sellos y premio; sin tazas ni referencias gastronómicas.
 
-Gestión: navegación lateral en escritorio y barra compacta adaptable en móvil, contexto de restaurante siempre visible. Selección activa en tinta y su icono en lima. Formularios de una columna en móvil y vista previa contigua en escritorio. Operaciones por referencia de compra y QR, sin controles para otorgar varios sellos arbitrarios.
+Gestión: navegación lateral en escritorio y barra compacta adaptable en móvil, contexto de restaurante siempre visible. Selección activa en tinta y su icono en lima. Formularios de una columna en móvil y vista previa contigua en escritorio. Operaciones por referencia de compra y QR, sin controles para otorgar varios sellos arbitrarios. El empleado tiene únicamente Operaciones y controles de sesión; las opciones de crear restaurantes, administrar sucursales/programas/equipo, entregar premios, revertir y cerrar pertenecen a Owner/Admin.
 
-Acceso: formulario sobre blanco y explicación sobre azul tinta, con una secuencia ilustrativa de sellos. Un mismo usuario puede consultar tarjetas y gestionar programas; los enlaces mantienen ambas rutas accesibles.
+Acceso: formulario sobre blanco y explicación sobre azul tinta, con una secuencia ilustrativa de sellos. La entrada ordinaria resuelve el espacio según la pertenencia al restaurante. El registro de negocio conserva la intención explícita de crear el primer restaurante; los enlaces de invitación, tarjeta y escaneo conservan su destino. La vista de cliente muestra únicamente tarjetas y controles personales, con regreso al negocio solo si existe una pertenencia real. Una identidad puede tener ambos recorridos.
 
 ## Estados y accesibilidad
 

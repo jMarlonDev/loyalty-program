@@ -16,6 +16,26 @@ function showShare() {
   );
 }
 describe('MOBILE-001 enlaces públicos', () => {
+  it('AC-007 comparte el QR LAN y explica que requiere la misma red', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ data: { appOrigin: 'http://192.168.33.9:3000' } }),
+        ),
+    );
+    showShare();
+    expect(
+      await screen.findByRole('link', {
+        name: 'http://192.168.33.9:3000/join/program-code',
+      }),
+    ).toHaveAttribute('href', 'http://192.168.33.9:3000/join/program-code');
+    expect(screen.getByText(/misma red/)).toBeVisible();
+    expect(
+      screen.queryByText(/solo funciona en este computador/),
+    ).not.toBeInTheDocument();
+  });
   it('usa el origen configurado y no localhost del navegador', async () => {
     const fetch = vi
       .fn()

@@ -31,8 +31,8 @@ describe('PROGRAMS-001 PostgreSQL', () => {
       );
     for (const id of [restaurant, foreignRestaurant])
       await database.pool.query(
-        "INSERT INTO restaurants(id,name,slug,status,created_at,updated_at) VALUES($1,'Café',$2,'active',now(),now())",
-        [id, id],
+        "INSERT INTO restaurants(id,name,status,created_at,updated_at) VALUES($1,'Café','active',now(),now())",
+        [id],
       );
     for (const [actor, role] of [
       [owner, 'owner'],

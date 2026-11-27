@@ -72,11 +72,17 @@ describe('tarjeta digital y accesibilidad', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(closed).toBe(true);
   });
-  it('la presentación lleva a acceso real y no promete Wallet', () => {
+  it('ROLE-001 la presentación distingue alta de negocio, acceso ordinario y tarjetas', () => {
     render(<LandingPage />);
     expect(
       screen.getByRole('link', { name: /Crear mi programa/ }),
-    ).toHaveAttribute('href', '/auth?mode=signup');
+    ).toHaveAttribute(
+      'href',
+      '/auth?mode=signup&next=%2Fapp%3Fonboarding%3Dbusiness',
+    );
+    expect(
+      screen.getByRole('link', { name: /Iniciar sesión/ }),
+    ).toHaveAttribute('href', '/auth');
     expect(
       screen.queryByText(/Apple Wallet|Google Wallet/),
     ).not.toBeInTheDocument();

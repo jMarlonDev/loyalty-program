@@ -25,7 +25,7 @@ Copiar `.env.example` a `.env` solo si no existe. Las variables del host prevale
 
 | Variable | Uso |
 | --- | --- |
-| DATABASE_URL | PostgreSQL con migraciones 0000–0003; conexión solo servidor |
+| DATABASE_URL | PostgreSQL con migraciones 0000–0004; conexión solo servidor |
 | APP_ORIGIN | Origen público exacto, HTTPS en producción; sin barra final ni path |
 | SUPABASE_URL | URL del proyecto Auth |
 | SUPABASE_PUBLISHABLE_KEY | Clave pública/anon para verificar y autenticar usuarios |
@@ -45,7 +45,7 @@ npm run migrate
 npm start
 ```
 
-`migrate` lee el entorno del host o `.env`; `generate` es local y no aplica cambios. No ejecutar migraciones en cada arranque ni usar schema push. La migración 0003 rechaza contabilidad histórica incompatible sin borrar datos. Si falla, conservar el servicio anterior y revisar el estado con el operador.
+`migrate` lee el entorno del host o `.env`; `generate` es local y no aplica cambios. No ejecutar migraciones en cada arranque ni usar schema push. La migración 0003 rechaza contabilidad histórica incompatible sin borrar datos. La 0004 retira el campo obsoleto restaurants.slug; revisar y autorizar su aplicación al destino antes del nuevo formulario. Si falla, conservar el servicio anterior y revisar el estado con el operador.
 
 Docker:
 

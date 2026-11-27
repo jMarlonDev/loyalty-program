@@ -23,7 +23,12 @@ if (missing.length) {
   process.exitCode = 1;
 } else {
   try {
-    const settings = loadRuntimeConfig(process.env);
+    const settings = loadRuntimeConfig({
+      ...process.env,
+      NODE_ENV: process.argv.includes('--public')
+        ? 'production'
+        : (process.env.NODE_ENV ?? 'development'),
+    });
     if (process.argv.includes('--public') && !isPublicOrigin(settings.origin))
       throw new Error(
         'APP_ORIGIN debe ser una dirección pública HTTPS para compartir enlaces con celulares. localhost solo funciona en este computador.',

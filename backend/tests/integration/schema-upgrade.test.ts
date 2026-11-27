@@ -7,7 +7,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '../helpers/database.js';
 
-async function initialDatabase() {
+async function initialDatabase(migrationCount = 1) {
   const directory = await mkdtemp(join(tmpdir(), 'loyalty-initial-'));
   const database = await createTestDatabase({ migrate: false });
   try {
@@ -16,15 +16,17 @@ async function initialDatabase() {
     const journal = JSON.parse(
       await readFile(join(source, 'meta/_journal.json'), 'utf8'),
     );
-    journal.entries = journal.entries.slice(0, 1);
+    journal.entries = journal.entries.slice(0, migrationCount);
     await writeFile(
       join(directory, 'meta/_journal.json'),
       JSON.stringify(journal),
     );
-    await cp(
-      join(source, '0000_initial.sql'),
-      join(directory, '0000_initial.sql'),
-    );
+    for (const entry of journal.entries) {
+      await cp(
+        join(source, `${entry.tag}.sql`),
+        join(directory, `${entry.tag}.sql`),
+      );
+    }
     await migrate(database.db, { migrationsFolder: directory });
     return database;
   } catch (error) {
@@ -35,7 +37,7 @@ async function initialDatabase() {
   }
 }
 
-async function legacyFixtures(database: TestDatabase) {
+async function legacyFixtures(database: TestDatabase, legacy = true) {
   const userId = randomUUID();
   const restaurantId = randomUUID();
   const programId = randomUUID();
@@ -44,10 +46,17 @@ async function legacyFixtures(database: TestDatabase) {
     "INSERT INTO users (id,full_name,status,created_at,updated_at) VALUES ($1,'Legacy','active',now(),now())",
     [userId],
   );
-  await database.pool.query(
-    "INSERT INTO restaurants (id,name,slug,status,created_at,updated_at) VALUES ($1,'Legacy',$2,'active',now(),now())",
-    [restaurantId, randomUUID()],
-  );
+  if (legacy) {
+    await database.pool.query(
+      "INSERT INTO restaurants (id,name,slug,status,created_at,updated_at) VALUES ($1,'Legacy',$2,'active',now(),now())",
+      [restaurantId, randomUUID()],
+    );
+  } else {
+    await database.pool.query(
+      "INSERT INTO restaurants (id,name,status,created_at,updated_at) VALUES ($1,'Legacy','active',now(),now())",
+      [restaurantId],
+    );
+  }
   await database.pool.query(
     "INSERT INTO loyalty_programs (id,restaurant_id,name,public_code,stamps_required,reward_description,status,created_at,updated_at) VALUES ($1,$2,'Legacy',$3,3,'Reward','active',now(),now())",
     [programId, restaurantId, randomUUID()],
@@ -60,6 +69,65 @@ async function legacyFixtures(database: TestDatabase) {
 }
 
 describe('DB-003 / BACKEND-001 AC-016: upgrade histórico', () => {
+  it('DB-005 upgrades 0003 preserving restaurant contact, owner, program, membership and card QR', async () => {
+    const database = await initialDatabase(4);
+    try {
+      const fixture = await legacyFixtures(database);
+      const roleId = randomUUID();
+      await database.pool.query(
+        "UPDATE restaurants SET email='contact@example.test',phone='+573001234567' WHERE id=$1",
+        [fixture.restaurantId],
+      );
+      await database.pool.query(
+        "INSERT INTO roles(id,rol_type,created_at) VALUES($1,'owner',now())",
+        [roleId],
+      );
+      await database.pool.query(
+        "INSERT INTO restaurant_employees(id,user_id,restaurant_id,role_id,status,joined_at,created_at,updated_at) VALUES($1,$2,$3,$4,'active',now(),now(),now())",
+        [randomUUID(), fixture.userId, fixture.restaurantId, roleId],
+      );
+      await database.pool.query(
+        "INSERT INTO loyalty_cards(id,membership_id,qr_token_hash,status,created_at) VALUES($1,$2,$3,'active',now())",
+        [randomUUID(), fixture.membershipId, 'private-qr-preserved'],
+      );
+      const state = () =>
+        database.pool.query(`SELECT jsonb_build_object(
+        'restaurant', (SELECT to_jsonb(r) - 'slug' - 'owner_user_id' FROM restaurants r WHERE id='${fixture.restaurantId}'),
+        'owner', (SELECT to_jsonb(e) - 'phone' - 'can_transfer_cards' FROM restaurant_employees e WHERE restaurant_id='${fixture.restaurantId}'),
+        'program', (SELECT to_jsonb(p) FROM loyalty_programs p WHERE id='${fixture.programId}'),
+        'membership', (SELECT to_jsonb(m) - 'is_reenrollment' - 'previous_cards_count' - 'close_reason' FROM memberships m WHERE id='${fixture.membershipId}'),
+        'card', (SELECT to_jsonb(c) - 'version' FROM loyalty_cards c WHERE membership_id='${fixture.membershipId}')
+      ) AS data`);
+      const before = (await state()).rows;
+      await database.migrate();
+      await database.migrate();
+      expect((await state()).rows).toEqual(before);
+      expect(
+        (
+          await database.pool.query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='restaurants' AND column_name='slug'",
+          )
+        ).rowCount,
+      ).toBe(0);
+      expect(
+        (
+          await database.pool.query(
+            "SELECT conname FROM pg_constraint WHERE conrelid='restaurants'::regclass AND conname='restaurants_slug_unique'",
+          )
+        ).rowCount,
+      ).toBe(0);
+      expect(
+        (
+          await database.pool.query(
+            'SELECT id FROM drizzle.__drizzle_migrations',
+          )
+        ).rowCount,
+      ).toBe(8);
+    } finally {
+      await database.cleanup();
+    }
+  });
+
   it('bloquea contabilidad histórica sin clasificación sin borrar datos ni aplicar upgrade parcial', async () => {
     const database = await initialDatabase();
     try {
@@ -122,10 +190,25 @@ describe('DB-003 / BACKEND-001 AC-016: upgrade histórico', () => {
       expect(
         (
           await database.pool.query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='restaurants' AND column_name='slug'",
+          )
+        ).rowCount,
+      ).toBe(0);
+      expect(
+        (
+          await database.pool.query(
+            'SELECT id,name FROM restaurants WHERE id=$1',
+            [fixture.restaurantId],
+          )
+        ).rows,
+      ).toEqual([{ id: fixture.restaurantId, name: 'Legacy' }]);
+      expect(
+        (
+          await database.pool.query(
             'SELECT * FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(4);
+      ).toBe(8);
       await database.pool.query(
         "INSERT INTO memberships (id,user_id,program_id,status,joined_at) VALUES ($1,$2,$3,'active',now())",
         [randomUUID(), fixture.userId, fixture.programId],
@@ -177,8 +260,8 @@ describe('DB-003 / BACKEND-001 AC-016: upgrade histórico', () => {
   it('rechaza movimientos ligados a premios de otra membresía', async () => {
     const database = await createTestDatabase();
     try {
-      const first = await legacyFixtures(database);
-      const second = await legacyFixtures(database);
+      const first = await legacyFixtures(database, false);
+      const second = await legacyFixtures(database, false);
       const rewardId = randomUUID();
       await database.pool.query(
         "INSERT INTO rewards (id,membership_id,description,stamps_spent,status,earned_at) VALUES ($1,$2,'Reward',3,'available',now())",

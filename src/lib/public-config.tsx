@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { isPublicOrigin, parseAppOrigin } from './public-origin';
+import { isLanOrigin, isPublicOrigin, parseAppOrigin } from './public-origin';
 
 export function useAppOrigin() {
   const query = useQuery({
@@ -13,7 +13,11 @@ export function useAppOrigin() {
       if (!response.ok || typeof payload?.data?.appOrigin !== 'string')
         throw new Error('No se pudo cargar el enlace. Vuelve a intentarlo.');
       try {
-        return parseAppOrigin(payload.data.appOrigin);
+        // The server authorizes LAN HTTP only in development. This validates
+        // its response for display; it does not authorize session requests.
+        return parseAppOrigin(payload.data.appOrigin, {
+          allowPrivateHttp: true,
+        });
       } catch {
         throw new Error(
           'La dirección de la aplicación no es válida. Contacta al administrador.',
@@ -27,6 +31,7 @@ export function useAppOrigin() {
   return {
     origin,
     isPublic: Boolean(origin && isPublicOrigin(origin)),
+    isLan: Boolean(origin && isLanOrigin(origin)),
     isLoading: query.isLoading,
     error: query.error,
     refetch: query.refetch,

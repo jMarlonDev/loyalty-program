@@ -42,7 +42,7 @@ describe('CORE/OPS HTTP real: rechazo antes de persistir', () => {
       if (!/^[a-z_]+$/.test(tablename))
         throw new Error('Unexpected fixture table');
       result[tablename] = (
-        await database.pool.query(`SELECT * FROM "${tablename}" ORDER BY id`)
+        await database.pool.query(`SELECT * FROM "${tablename}" ORDER BY 1`)
       ).rows;
     }
     return result;

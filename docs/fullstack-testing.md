@@ -43,3 +43,47 @@ Ejecutar `npm run build` y `npm run test:browser:production`; usa `.output/serve
 - **10/10 navegador de producción**, cinco escritorio y cinco Pixel 7, con PostgreSQL17 temporal y Auth simulado. Comprueba inscripción → enlace directo de tarjeta → recarga, restauración sin access cookie, error de sesión recuperable, apertura QR sin sesión → login → formulario, compra explícita y canje, registro/confirmación y recuperación de contraseña. Axe sin infracciones en las superficies evaluadas; capturas del formulario inspeccionadas en ambos tamaños.
 - El primer recorrido detectó consulta de tarjetas antes de crear el perfil; corregido y cubierto con RED/GREEN. Un fallo posterior fue una carrera de navegación del test tras logout; se espera la llegada a inicio antes de continuar. No se relajaron límites/permisos de producción.
 - `env:check -- --public` rechaza localhost como corresponde; enlaces documentales y diff --check correctos. No se afirma OAuth/SMTP reales, cámara física ni publicación HTTPS. El usuario no tiene URL pública; pasos operativos en docs/deployment.md.
+
+## Roles y HTTPS local — 2026-10-18
+
+`npm run test:browser:production -- --https` ejecuta el mismo artefacto Node con
+`APP_ORIGIN=https://127.0.0.1:3102`. El harness crea un certificado de un día con
+OpenSSL, un proxy TLS únicamente en loopback y un proveedor Auth de pruebas.
+Playwright acepta expresamente ese certificado autofirmado solo en este modo.
+Cada escenario y viewport arranca servidor y base nuevos: los cuatro usuarios
+de un mismo escenario comparten el límite real, pero no heredan tráfico de
+otras pruebas independientes.
+El proxy, las claves temporales y las bases se retiran al terminar. No cambia
+la confianza TLS de la aplicación ni usa Supabase remoto.
+
+Se decodifican los píxeles SVG del QR público, invitación y tarjeta con ZXing,
+la misma biblioteca ya instalada para la cámara. El recorrido conserva el QR
+privado durante el acceso del empleado, registra compras explícitas y observa
+el sello en otra sesión sin recargarla. El empleado carece de gestión, canje
+y cierre; un Admin real de fixture conserva esas operaciones. Cookies HttpOnly
+y Secure se comprueban bajo HTTPS. Esto prueba transporte y enlaces HTTPS
+locales; no acredita una URL pública, Google/SMTP reales ni cámara física.
+
+La aceptación detectó y corrigió una inconsistencia real: el detalle de
+restaurante no incluía actor_role, por lo que /scan mostraba al administrador
+como empleado. Se añadió el rol verificado en la respuesta y tres regresiones
+SQL (Owner/Admin/Employee, además de aislamiento por negocio). Staff final
+21/21 y check backend correctos. Las comprobaciones HTTPS usan los nombres
+__Host- de cookies reales; las cuentas de fixture se vuelven a autenticar tras
+logout en lugar de reutilizar sesiones revocadas.
+
+Resultado de esta aceptación: **175 UI/servidor**, **418/418 backend** en la
+suite completa y **21/21 staff** después de añadir las tres regresiones del
+rol singular. **10/10 navegador HTTPS de producción**, cinco escritorio y
+cinco móvil, con revisión visual de capturas y Axe en superficies recorridas.
+No se midió de nuevo la cobertura.
+
+Se realizó por separado una aceptación real contra Supabase: acceso de las
+tres cuentas, permisos, QR, compra Employee y tarjeta del cliente actualizada
+a 1/5 sin recarga. El servidor de esa comprobación fue temporal en loopback;
+no acredita publicación HTTPS. Informe privado en .cache/real-acceptance.json.
+
+La limpieza final del harness maneja salida por señal, cierra conexiones de
+fixtures y retira certificados antes de esperar al proceso hijo. Regresión
+HTTPS móvil 1/1 correcta tras ese ajuste; Biome y tipos correctos. Inventario
+final: ningún contenedor loyalty-test ni directorio temporal de certificados.

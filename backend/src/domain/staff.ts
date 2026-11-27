@@ -6,8 +6,5 @@ export function canManageStaff(
   next: StaffRole,
 ): boolean {
   if (current === 'owner' || next === 'owner') return false;
-  return (
-    actor === 'owner' ||
-    (actor === 'admin' && current === 'employee' && next === 'employee')
-  );
+  return actor === 'owner' || actor === 'admin';
 }

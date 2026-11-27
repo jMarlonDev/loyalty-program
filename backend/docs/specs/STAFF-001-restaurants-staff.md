@@ -11,7 +11,9 @@ y utiliza DB-003 sin migrar el destino remoto.
 ## Referencias
 
 BR-003, BR-007, BR-009, BR-010, BR-011 y BR-012; BACKEND-001 AC-006, AC-007,
-AC-015. Identidad verificada por IDENTITY-001; esquema incremental DB-003.
+AC-015. Identidad verificada por IDENTITY-001; esquema incremental DB-003 y
+[DB-005](../decisions/DB-005.md), retirada del identificador manual autorizada por
+la solicitud del 2026-10-18.
 
 ## Contrato
 
@@ -23,22 +25,23 @@ Listas por UUID ascendente, `limit` por defecto 20, máximo 100 y cursor UUID.
 
 | Método/ruta | Entrada | Permiso / resultado |
 | --- | --- | --- |
-| POST `/restaurants` | `{name,slug,email?,phone?}` | Perfil activo; 201, restaurante active y Owner atómicos |
-| GET `/restaurants` | limit/cursor | Restaurantes de pertenencias activas; incluye suspendidos para Owner |
-| GET `/restaurants/:id` | — | Personal activo del mismo restaurante; Owner accede suspendido |
-| PATCH `/restaurants/:id` | `{name?,email?,phone?,status?}` | Owner/Admin; status active/suspended solo Owner |
+| POST `/restaurants` | `{name,email?,phone?}` | Perfil activo con autoservicio según ROLE-001; 201, restaurante active y Owner atómicos |
+| GET `/restaurants` | limit/cursor | Restaurantes de pertenencias activas; incluye suspendidos para Owner/Admin |
+| GET `/restaurants/:id` | — | Personal activo del mismo restaurante; incluye actor_role verificado (ROLE-001 AC-007); Owner/Admin accede suspendido |
+| PATCH `/restaurants/:id` | `{name?,email?,phone?,status?}` | Owner/Admin; status active/suspended Owner/Admin |
 | GET/POST `/restaurants/:id/locations` | POST `{name,address,city,department,phone?}` | Consulta personal; creación Owner/Admin, 201 |
 | PATCH `/restaurants/:id/locations/:target` | `{name?,address?,city?,department?,phone?,status?}` | Owner/Admin, estado active/inactive, sin borrar historial |
 | GET `/restaurants/:id/employees` | limit/cursor | Owner/Admin |
-| PATCH `/restaurants/:id/employees/:target` | `{role?,status?}` | Owner gestiona Admin/Employee; Admin solo Employee; status active/suspended/disabled |
+| PATCH `/restaurants/:id/employees/:target` | `{role?,status?}` | Owner/Admin gestiona Admin/Employee; status active/suspended/disabled |
 | GET/POST `/restaurants/:id/invitations` | POST `{email,role}` | Owner/Admin según jerarquía; role admin/employee; 201 con token opaco |
 | POST `/restaurants/:id/invitations/:target/revoke` | `{}` | Owner/Admin según rol invitado; solo pending, 200 |
 | POST `/invitations/accept` | `{token}` | Correo verificado igual al invitado; 200 con pertenencia |
 
-Nombre/slug/campos geográficos hasta 255 caracteres, address hasta 2000, teléfono
-hasta 20. Slug minúsculas, números y guiones (sin extremos). Email normalizado a
+Nombre/campos geográficos hasta 255 caracteres, address hasta 2000, teléfono
+hasta 20. El restaurante no solicita ni expone slug; mantiene su UUID interno y
+permite nombres repetidos entre negocios independientes. Email normalizado a
 minúsculas. PATCH no vacío; nullable email/phone admite null. Una edición de personal
-no puede apuntar al Owner ni asignar Owner. Admin tampoco degrada Admin ni se eleva.
+no puede apuntar al Owner ni asignar Owner. Admin puede gestionar Admin/Employee; ROLE-001 conserva la protección del Owner.
 
 La invitación conserva hash SHA-256 de un token aleatorio de 32 bytes y caduca a
 los siete días. El token se entrega solo al crear/reintentar ese comando; listados
@@ -53,7 +56,7 @@ Invitar a alguien con pertenencia previa respeta la jerarquía sobre su rol actu
 Cada escritura bloquea restaurante y actor y verifica acceso antes de idempotencia;
 creación bloquea actor y serializa por clave. Misma clave/contenido devuelve el
 resultado original; contenido distinto 409. Se registra auditoría sin tokens.
-Restaurante suspendido bloquea operación salvo administración por Owner para
+Restaurante suspendido bloquea operación salvo administración por Owner/Admin para
 reactivación. No se borran sucursales, personal ni invitaciones.
 
 Errores: 400 `INVALID_INPUT`/`INVALID_IDEMPOTENCY_KEY`; 401 autenticación;
@@ -66,9 +69,9 @@ pertenencia/auditoría son una sola transacción.
 
 - AC-001 — Crear restaurante crea exactamente un Owner y un evento; replay no duplica.
 - AC-002 — Jerarquía y aislamiento rechazan Employee administrativo, Admin sobre
-  Admin/Owner y recursos ajenos; Owner nunca se modifica por gestión ordinaria.
+  Owner y recursos ajenos; Owner nunca se modifica por gestión ordinaria.
 - AC-003 — Sucursales conservan historial y solo personal administrativo activo
-  del restaurante puede mutar; restaurante suspendido permite su reactivación por Owner.
+  del restaurante puede mutar; restaurante suspendido permite su reactivación por Owner/Admin.
 - AC-004 — Invitación dura siete días, se almacena hash y la acepta solo correo
   verificado destinatario si el emisor conserva permisos; repetir no duplica.
 - AC-005 — Invitaciones vencidas/revocadas, emisor suspendido o degradado, y
@@ -77,6 +80,10 @@ pertenencia/auditoría son una sola transacción.
   listas no incluyen secretos y respetan pertenencia.
 - AC-007 — Concurrencia/reintentos mantienen una pertenencia por usuario/restaurante,
   decisiones actuales dentro de transacción y auditoría de cambios válidos.
+- AC-008 — Crear restaurante requiere solo nombre; admite contacto opcional y
+  nombres repetidos sin colisiones. Rechaza slug como campo desconocido. La
+  migración incremental retira la columna/constraint y conserva UUID, relaciones,
+  contactos e historial; no altera los códigos QR de programas ni de tarjetas.
 
 ## Trazabilidad y validación
 
@@ -86,6 +93,7 @@ pertenencia/auditoría son una sola transacción.
 | BR-009, BR-010, BR-012 | AC-001–AC-003, AC-007 | integration `staff.test.ts` | RED sin restaurante/Owner ni rechazos; GREEN 9 escenarios PostgreSQL |
 | BR-011 | AC-004, AC-005 | integration `staff.test.ts` | RED sin invitación/aceptación; GREEN con caducidad, revocación, concurrencia y permisos actuales |
 | Contratos BACKEND-001 | AC-006 | unit `staff-http.test.ts` | RED 5 fallos HTTP 404; GREEN 5 pruebas |
+| BR-009, BR-010, DB-005 | AC-008 | tooling `schema.test.ts`; unit `staff-http.test.ts`; integration `staff.test.ts`, `schema-upgrade.test.ts` | RED: nombre solo 400, slug aceptado y columna existente; GREEN tooling/HTTP; integración pendiente de repetición por timeouts del entorno |
 
 Evidencia del 2026-10-18:
 
@@ -129,3 +137,25 @@ verificada; no prueba el envío/verificación de correo del proveedor.
 - El reloj del fixture se restablece antes de cada caso. Integración focal inicial
   de identidad/personal: 19/19; el cierre global registra la verificación final.
   Estas pruebas usan PostgreSQL temporal y no modifican Supabase ni reglas nuevas.
+
+## Retirada del identificador manual — 2026-10-18
+
+- DB-005 precede al código y autoriza retirar `slug`. RED observado en tooling
+  por columna presente; en HTTP, crear con nombre solo devolvía 400 y suministrar
+  `slug` todavía devolvía 201. GREEN posterior: `npm run check` en backend correcto
+  con 7 pruebas de tooling y 221 unitarias, además de lint y tipos.
+- RED PostgreSQL real: después del upgrade histórico seguía existiendo la columna
+  `slug` (una fila frente a cero esperadas en information_schema). Migración
+  `0004_remove_restaurant_slug.sql` generada sin modificar 0000–0003; SQL revisado:
+  elimina exclusivamente `restaurants_slug_unique` y `restaurants.slug`.
+- Se refuerzan upgrade 0003→0004 y reejecución con contactos, Owner, programa,
+  membresía y QR existentes; creación concurrente, nombres repetidos e aislamiento.
+  Se conserva la prueba de rollback de creación mediante fallo de auditoría,
+  sustituyendo el antiguo conflicto del slug eliminado.
+- La primera ejecución posterior de los siete archivos afectados no acredita el
+  GREEN de integración: 127 pruebas correctas, seis fallos por tiempo de conexión/
+  prueba y 19 omitidas por setup, además de timeouts de hooks. No hubo fallos de
+  aserción funcional. Se requiere repetición con el entorno sin carga simultánea.
+- `npm run generate` posterior no genera cambios adicionales y `npm run db:check`
+  es correcto. Sin aplicación remota por el agente del esquema; la coordinación
+  principal identifica y valida el destino antes de aplicar la migración autorizada.

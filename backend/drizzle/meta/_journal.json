@@ -29,6 +29,34 @@
       "when": 1792350429344,
       "tag": "0003_legacy_accounting_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792368788751,
+      "tag": "0004_remove_restaurant_slug",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792445248767,
+      "tag": "0005_technical_transition",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792446920772,
+      "tag": "0006_unusual_sunspot",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795782725187,
+      "tag": "0007_next006_card_lifecycle",
+      "breakpoints": true
     }
   ]
 }

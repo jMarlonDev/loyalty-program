@@ -34,8 +34,8 @@ describe('LOYALTY-001: transacciones y concurrencia reales', () => {
         [id, `${id}@example.test`],
       );
     await database.pool.query(
-      "INSERT INTO restaurants(id,name,slug,status,created_at,updated_at) VALUES($1,'Fixture',$2,'active',now(),now())",
-      [ids.restaurant, randomUUID()],
+      "INSERT INTO restaurants(id,name,status,created_at,updated_at) VALUES($1,'Fixture','active',now(),now())",
+      [ids.restaurant],
     );
     const role = (
       await database.pool.query<{ id: string }>(
@@ -91,6 +91,107 @@ describe('LOYALTY-001: transacciones y concurrencia reales', () => {
       ).rows[0]?.count,
     );
   }
+
+  it.each(['redeem', 'close'] as const)(
+    'ROLE-001 AC-003 Employee can stamp but cannot %s even with customer consent',
+    async (operation) => {
+      const f = await fixture(2);
+      const role = (
+        await database.pool.query<{ id: string }>(
+          "INSERT INTO roles(id,rol_type,created_at) VALUES($1,'employee',now()) ON CONFLICT(rol_type) DO UPDATE SET rol_type=excluded.rol_type RETURNING id",
+          [randomUUID()],
+        )
+      ).rows[0]?.id;
+      await database.pool.query(
+        'UPDATE restaurant_employees SET role_id=$1 WHERE id=$2',
+        [role, f.employee],
+      );
+      expect(await f.buy()).toMatchObject({ balance: 1 });
+      await f.buy();
+      const reward = (
+        await database.pool.query(
+          'SELECT id FROM rewards WHERE membership_id=$1',
+          [f.membership],
+        )
+      ).rows[0].id as string;
+      const consent = await service.consent(
+        f.customer,
+        f.card,
+        { benefits_version: 2, accepted: true },
+        randomUUID(),
+      );
+      const before = await snapshot(f);
+      const result =
+        operation === 'redeem'
+          ? service.redeem(
+              f.owner,
+              f.restaurant,
+              reward,
+              { location_id: f.location },
+              randomUUID(),
+            )
+          : service.close(
+              f.owner,
+              f.restaurant,
+              f.card,
+              { consent_id: consent.id },
+              randomUUID(),
+            );
+      await expect(result).rejects.toMatchObject({ status: 403 });
+      expect(await snapshot(f)).toEqual(before);
+    },
+  );
+
+  it.each(['redeem', 'close'] as const)(
+    'ROLE-001 AC-003 downgrade to Employee rejects replay of admin %s',
+    async (operation) => {
+      const f = await fixture(1);
+      await f.buy();
+      const reward = (
+        await database.pool.query(
+          'SELECT id FROM rewards WHERE membership_id=$1',
+          [f.membership],
+        )
+      ).rows[0].id as string;
+      const consent = await service.consent(
+        f.customer,
+        f.card,
+        { benefits_version: 1, accepted: true },
+        randomUUID(),
+      );
+      const key = randomUUID();
+      const invoke = () =>
+        operation === 'redeem'
+          ? service.redeem(
+              f.owner,
+              f.restaurant,
+              reward,
+              { location_id: f.location },
+              key,
+            )
+          : service.close(
+              f.owner,
+              f.restaurant,
+              f.card,
+              { consent_id: consent.id },
+              key,
+            );
+      await invoke();
+      const role = (
+        await database.pool.query<{ id: string }>(
+          "INSERT INTO roles(id,rol_type,created_at) VALUES($1,'employee',now()) ON CONFLICT(rol_type) DO UPDATE SET rol_type=excluded.rol_type RETURNING id",
+          [randomUUID()],
+        )
+      ).rows[0]?.id;
+      await database.pool.query(
+        'UPDATE restaurant_employees SET role_id=$1 WHERE id=$2',
+        [role, f.employee],
+      );
+      const before = await snapshot(f);
+      await expect(invoke()).rejects.toMatchObject({ status: 403 });
+      expect(await snapshot(f)).toEqual(before);
+    },
+  );
 
   it('AC-001/002: compras concurrentes crean un sello, premio FIFO y reintentos no duplican', async () => {
     const f = await fixture();

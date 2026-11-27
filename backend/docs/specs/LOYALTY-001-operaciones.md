@@ -6,6 +6,10 @@ Estado: implementada y validada con PostgreSQL aislado. Fecha: 2026-10-18.
 
 Implementa fases 5–7 de [BACKEND-001](BACKEND-001-plan-de-negocio.md), reglas [BR-005, BR-012 a BR-017, BR-020/021](../business-rules.md) y persistencia [DB-003](../decisions/DB-003.md). Compras, contabilidad, asignaciones, consentimiento e idempotencia se escriben en una única transacción PostgreSQL. El restaurante se bloquea antes del actor y se comprueba autorización actual antes de reutilizar un resultado.
 
+La revisión [ROLE-001](ROLE-001-role-boundaries.md) restringe canje y cierre a
+Owner/Admin; Employee solo resuelve QR y registra compras. Prevalece sobre
+referencias históricas de permisos y evidencia de este documento.
+
 ## Contratos HTTP
 
 Prefijo `/api/v1`, identidad verificada Supabase, errores comunes y `Idempotency-Key` obligatorio en comandos. UUID del actor, personal, sellos y fechas se obtienen en servidor. Se rechazan campos desconocidos.
@@ -24,7 +28,7 @@ Compras requieren restaurante, personal, sucursal, programa, membresía y tarjet
 
 Owner/Admin revierte con motivo: si una asignación activa financió un premio entregado se rechaza todo. Para premios disponibles afectados, cancela, libera asignaciones, compensa su débito, resta el sello original y recalcula. Compras/movimientos originales nunca se eliminan. La reversión de membresía cerrada se rechaza.
 
-El titular obtiene vista previa y consiente la versión actual con aceptación explícita. Consentimiento dura quince minutos, se puede revocar y solo se consume una vez. Personal activo ejecuta cierre con consentimiento de ese titular/tarjeta, versión actual y vigencia. Cierre cancela pendientes, anula saldo por un movimiento, cierra membresía, bloquea tarjeta, invalida QR y conserva historial. Toda mutación de beneficios incrementa su versión.
+El titular obtiene vista previa y consiente la versión actual con aceptación explícita. Consentimiento dura quince minutos, se puede revocar y solo se consume una vez. Owner/Admin activo ejecuta cierre con consentimiento de ese titular/tarjeta, versión actual y vigencia. Cierre cancela pendientes, anula saldo por un movimiento, cierra membresía, bloquea tarjeta, invalida QR y conserva historial. Toda mutación de beneficios incrementa su versión.
 
 Errores: 400 entrada inválida; 401 sesión; 403 rol/estado/autooperación; 404 recurso ajeno/inexistente; 409 referencia, clave, estado, consentimiento o versión incompatible. Rechazos no persisten efectos. Repetición de clave/cuerpo devuelve resultado original tras validar acceso; clave con otro cuerpo da 409. Una revocación de acceso impide incluso ese replay.
 

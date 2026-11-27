@@ -1,10 +1,17 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { createServer } from 'node:http';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createServer, request as proxyRequest } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createTestDatabase } from '../../backend/tests/helpers/database';
 
 // This upstream lives only in the browser harness. Production always verifies
 // tokens through SupabaseIdentityProvider, including when this fixture is used.
+const useHttps = process.env.LOYALTY_BROWSER_HTTPS === '1';
+const origin = useHttps ? 'https://127.0.0.1:3102' : 'http://127.0.0.1:3100';
+const callbackUrl = `${origin}/api/session/callback`;
 const users = new Map<
   string,
   {
@@ -48,11 +55,7 @@ const upstream = createServer(async (req, res) => {
     const email = input.email;
     const challenge = input.code_challenge;
     const redirect = url.searchParams.get('redirect_to');
-    if (
-      !email ||
-      !challenge ||
-      redirect !== 'http://127.0.0.1:3100/api/session/callback'
-    ) {
+    if (!email || !challenge || redirect !== callbackUrl) {
       reply(400, { error: 'bad_signup' });
       return;
     }
@@ -79,10 +82,7 @@ const upstream = createServer(async (req, res) => {
   if (url.pathname === '/auth/v1/authorize') {
     const redirect = url.searchParams.get('redirect_to');
     const challenge = url.searchParams.get('code_challenge');
-    if (
-      redirect !== 'http://127.0.0.1:3100/api/session/callback' ||
-      !challenge
-    ) {
+    if (redirect !== callbackUrl || !challenge) {
       reply(400, { error: 'bad_redirect' });
       return;
     }
@@ -177,7 +177,7 @@ const env = {
   SUPABASE_URL: `http://127.0.0.1:${address.port}`,
   SUPABASE_PUBLISHABLE_KEY: 'test-public-key',
   CARD_TOKEN_ENCRYPTION_KEY: 'ab'.repeat(32),
-  APP_ORIGIN: 'http://127.0.0.1:3100',
+  APP_ORIGIN: origin,
   PORT: '3100',
   HOST: '127.0.0.1',
   NODE_ENV:
@@ -197,17 +197,94 @@ const child = spawn(
       ],
   { env, stdio: 'inherit' },
 );
+// TLS is confined to isolated browser fixtures; no certificates or proxy ship
+// in the application. The browser explicitly trusts this temporary test cert.
+let certificateDirectory: string | undefined;
+let tlsProxy: ReturnType<typeof createHttpsServer> | undefined;
+if (useHttps) {
+  certificateDirectory = await mkdtemp(join(tmpdir(), 'loyalty-browser-tls-'));
+  const key = join(certificateDirectory, 'key.pem');
+  const cert = join(certificateDirectory, 'cert.pem');
+  execFileSync(
+    'openssl',
+    [
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-nodes',
+      '-days',
+      '1',
+      '-subj',
+      '/CN=localhost',
+      '-addext',
+      'subjectAltName=IP:127.0.0.1,DNS:localhost',
+      '-keyout',
+      key,
+      '-out',
+      cert,
+    ],
+    { stdio: 'ignore' },
+  );
+  tlsProxy = createHttpsServer(
+    { key: await readFile(key), cert: await readFile(cert) },
+    (req, res) => {
+      const forwarded = proxyRequest(
+        {
+          hostname: '127.0.0.1',
+          port: 3100,
+          path: req.url,
+          method: req.method,
+          headers: { ...req.headers, 'x-forwarded-proto': 'https' },
+        },
+        (upstreamResponse) => {
+          res.writeHead(
+            upstreamResponse.statusCode ?? 502,
+            upstreamResponse.headers,
+          );
+          upstreamResponse.pipe(res);
+        },
+      );
+      forwarded.on('error', () => {
+        res.writeHead(502).end();
+      });
+      req.pipe(forwarded);
+    },
+  );
+  await new Promise<void>((resolve) =>
+    tlsProxy?.listen(3102, '127.0.0.1', resolve),
+  );
+}
 let stopping = false;
-async function cleanup() {
-  if (stopping) return;
+let cleanupPromise: Promise<void> | undefined;
+function cleanup() {
+  cleanupPromise ??= releaseFixtures();
+  return cleanupPromise;
+}
+async function releaseFixtures() {
   stopping = true;
   child.kill('SIGTERM');
-  await new Promise<void>((resolve) => {
-    if (child.exitCode !== null) resolve();
-    else child.once('exit', () => resolve());
+  const childClosed = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) return resolve();
+    const timeout = setTimeout(() => child.kill('SIGKILL'), 5000);
+    child.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
   });
-  await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  if (certificateDirectory)
+    await rm(certificateDirectory, { recursive: true, force: true });
+  await new Promise<void>((resolve) => {
+    upstream.close(() => resolve());
+    upstream.closeAllConnections();
+  });
+  if (tlsProxy)
+    await new Promise<void>((resolve) => {
+      tlsProxy?.close(() => resolve());
+      tlsProxy?.closeAllConnections();
+    });
   await database.cleanup();
+  await childClosed;
 }
 process.on('SIGTERM', () => void cleanup().finally(() => process.exit(0)));
 process.on('SIGINT', () => void cleanup().finally(() => process.exit(0)));

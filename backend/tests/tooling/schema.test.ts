@@ -113,8 +113,25 @@ for (const relationship of originalAvailable ? model.relationships : []) {
 }
 const tables = Object.values(schema).map(getTableConfig);
 const dialect = new PgDialect();
+// DB-005: slug es la única columna original retirada por solicitud explícita.
+for (const table of model.tables) {
+  if (table.name === 'restaurants')
+    table.fields = table.fields.filter((field) => field.name !== 'slug');
+}
 
 describe(`ENV-001/DB-003: fidelidad al ${originalAvailable ? 'modelo JSON' : 'snapshot inicial versionado'}`, () => {
+  it('DB-005 elimina slug y su unicidad, conservando el UUID interno', () => {
+    const restaurants = getTableConfig(schema.restaurants);
+    expect(restaurants.columns.map((column) => column.name)).not.toContain(
+      'slug',
+    );
+    expect(
+      restaurants.columns.find((column) => column.name === 'id')?.primary,
+    ).toBe(true);
+    expect(
+      restaurants.uniqueConstraints.map((constraint) => constraint.name),
+    ).not.toContain('restaurants_slug_unique');
+  });
   it('conserva todas las tablas, columnas, tipos, nulabilidad y claves', () => {
     expect(tables.map((t) => t.name).sort()).toEqual(
       expect.arrayContaining(model.tables.map((t) => t.name)),
@@ -199,6 +216,12 @@ describe(`ENV-001/DB-003: fidelidad al ${originalAvailable ? 'modelo JSON' : 'sn
         : Object.values(
             snapshot.tables[`public.${source.name}`]?.checkConstraints ?? {},
           ).map((check) => check.value);
+      // NEXT-006 amplía el estado de la tarjeta con 'closed' (migración 0007).
+      if (source.name === 'loyalty_cards') {
+        const index = expected.indexOf("status IN ('active', 'blocked')");
+        if (index >= 0)
+          expected[index] = "status IN ('active', 'blocked', 'closed')";
+      }
       const table = tables.find((t) => t.name === source.name);
       assert(table);
       const actual = table.checks.map((c) => dialect.sqlToQuery(c.value).sql);

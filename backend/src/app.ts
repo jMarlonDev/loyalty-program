@@ -7,13 +7,15 @@ import { createLoyaltyService } from './application/loyalty.js';
 import { createProgramService } from './application/programs.js';
 import { createStaffService } from './application/staff.js';
 import { PgLoyaltyRepository } from './infrastructure/loyalty-repository.js';
+import { PgNextRepository } from './infrastructure/next-repository.js';
 import { PgProfileRepository } from './infrastructure/profile-repository.js';
 import { PgProgramRepository } from './infrastructure/programs-repository.js';
 import { PgStaffRepository } from './infrastructure/staff-repository.js';
 import { createBaseApp } from './presentation/http/base-app.js';
+import { mountedOpenApiDocument } from './presentation/http/combined-openapi.js';
 import { createIdentityRoutes } from './presentation/http/identity.js';
 import { createLoyaltyRoutes } from './presentation/http/loyalty.js';
-import { openApiDocument } from './presentation/http/openapi.js';
+import { createNextRoutes } from './presentation/http/next-routes.js';
 import {
   addOperationalMiddleware,
   type OperationLog,
@@ -28,6 +30,7 @@ export interface AppDependencies {
   corsOrigins?: string[];
   log?: (entry: OperationLog) => void;
   now?: () => Date;
+  publicOrigin?: string;
 }
 
 export function createApp(dependencies: AppDependencies) {
@@ -50,6 +53,19 @@ export function createApp(dependencies: AppDependencies) {
     ...(dependencies.now ? { now: dependencies.now } : {}),
   };
   app.route('/api/v1', createIdentityRoutes({ identityService }));
+  app.route(
+    '/api/v1',
+    createNextRoutes({
+      identityService,
+      repository: new PgNextRepository(dependencies.pool, {
+        ...repositoryOptions,
+        ...(dependencies.publicOrigin
+          ? { publicOrigin: dependencies.publicOrigin }
+          : {}),
+      }),
+      origin: dependencies.publicOrigin ?? '',
+    }),
+  );
   app.route(
     '/api/v1',
     createStaffRoutes({
@@ -77,6 +93,6 @@ export function createApp(dependencies: AppDependencies) {
       ),
     }),
   );
-  app.get('/openapi.json', (c) => c.json(openApiDocument));
+  app.get('/openapi.json', (c) => c.json(mountedOpenApiDocument));
   return app;
 }

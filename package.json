@@ -7,7 +7,7 @@
     "backend"
   ],
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 3000",
+    "dev": "vite --host 192.168.33.9 --port 3000 --strictPort",
     "build": "vite build",
     "start": "node --env-file-if-exists=.env .output/server/index.mjs",
     "typecheck": "npm run routes:generate && tsc --noEmit && npm run typecheck --workspace backend",
@@ -24,7 +24,8 @@
     "test:browser:db": "node backend/scripts/test-db.mjs --browser",
     "env:check": "node --import tsx scripts/env-check.ts",
     "test:browser:production": "node backend/scripts/test-db.mjs --browser --production",
-    "routes:generate": "node scripts/generate-routes.mjs"
+    "routes:generate": "node scripts/generate-routes.mjs",
+    "accounts:seed": "node --import tsx scripts/seed-test-accounts.ts"
   },
   "description": "Sistema de fidelización para restaurantes basado en tarjetas digitales y sellos.",
   "engines": {

@@ -9,6 +9,7 @@ const auth = vi.hoisted(() => ({
   signup: vi.fn(),
   google: vi.fn(),
   reload: vi.fn(),
+  logout: vi.fn(),
 }));
 vi.mock('../../src/lib/auth', () => ({ useAuth: () => auth }));
 beforeEach(() => {
@@ -16,6 +17,7 @@ beforeEach(() => {
   auth.user = null;
   auth.error = null;
   auth.signup.mockResolvedValue({ confirmationRequired: true });
+  auth.logout.mockResolvedValue(undefined);
   window.history.replaceState({}, '', '/auth?mode=signup');
 });
 
@@ -33,6 +35,19 @@ function fillSignup() {
 }
 
 describe('ACCESS-001 destino y errores de acceso', () => {
+  it('ROLE-001 registro de negocio explícito conserva intención tras confirmar el correo', async () => {
+    render(<AuthPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Administrar' }));
+    fillSignup();
+    await waitFor(() =>
+      expect(auth.signup).toHaveBeenCalledWith(
+        'ana@example.test',
+        'test-password',
+        'Ana',
+        '/app?onboarding=business',
+      ),
+    );
+  });
   it('conserva la elección de tarjetas también al confirmar el registro por correo', async () => {
     render(<AuthPage />);
     fireEvent.click(screen.getByRole('button', { name: 'Mis tarjetas' }));
@@ -91,5 +106,57 @@ describe('ACCESS-001 destino y errores de acceso', () => {
     expect(
       screen.queryByRole('button', { name: 'Google' }),
     ).not.toBeInTheDocument();
+  });
+  it('FLOW-001 cambia la cuenta real y conserva la invitación al registrarse', async () => {
+    auth.user = { email: 'owner@example.test' };
+    window.history.replaceState(
+      {},
+      '',
+      '/auth?mode=signup&next=%2Finvite%2Fstaff-token',
+    );
+    const view = render(<AuthPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Usar otra cuenta' }));
+    await waitFor(() => expect(auth.logout).toHaveBeenCalledOnce());
+    auth.user = null;
+    view.rerender(<AuthPage />);
+    expect(
+      screen.getByText(/correo al que enviaron la invitación/i),
+    ).toBeVisible();
+    fillSignup();
+    await waitFor(() =>
+      expect(auth.signup).toHaveBeenCalledWith(
+        'ana@example.test',
+        'test-password',
+        'Ana',
+        '/invite/staff-token',
+      ),
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Administrar' }),
+    ).not.toBeInTheDocument();
+  });
+  it('FLOW-001 conserva la sesión si el cambio de cuenta falla', async () => {
+    auth.user = { email: 'owner@example.test' };
+    auth.logout.mockRejectedValue(
+      new Error('No se pudo cerrar la sesión. Reintenta.'),
+    );
+    render(<AuthPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Usar otra cuenta' }));
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'No se pudo cerrar la sesión',
+      ),
+    );
+    expect(screen.getByText('owner@example.test')).toBeVisible();
+    expect(screen.queryByLabelText('Contraseña')).not.toBeInTheDocument();
+  });
+  it('FLOW-001 explica que el registro desde un programa obtiene una tarjeta de cliente', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/auth?mode=signup&next=%2Fjoin%2Fclub',
+    );
+    render(<AuthPage />);
+    expect(screen.getByText(/tu tarjeta de cliente/i)).toBeVisible();
   });
 });

@@ -44,18 +44,19 @@ const headers = {
 };
 
 describe('STAFF-001 AC-006 HTTP boundaries', () => {
-  it('creates restaurant with server-derived identity and request correlation', async () => {
+  it('AC-008 creates restaurant with name only and server-derived identity', async () => {
     const { app, repository, actor } = setup();
     const response = await app.request('/api/v1/restaurants', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ name: 'Cafe', slug: 'cafe' }),
+      body: JSON.stringify({ name: 'Cafe' }),
     });
     expect(response.status).toBe(201);
     expect(repository.execute).toHaveBeenCalledWith(
       expect.objectContaining({
         actor,
         action: 'restaurant.create',
+        input: { name: 'Cafe' },
         key: 'command-1',
         requestId: response.headers.get('x-request-id'),
       }),
@@ -66,7 +67,8 @@ describe('STAFF-001 AC-006 HTTP boundaries', () => {
     const { app, repository } = setup();
     for (const body of [
       '{',
-      JSON.stringify({ name: 'Cafe', slug: 'cafe', role: 'owner' }),
+      JSON.stringify({ name: 'Cafe', role: 'owner' }),
+      JSON.stringify({ name: 'Cafe', slug: 'obsolete' }),
     ]) {
       const response = await app.request('/api/v1/restaurants', {
         method: 'POST',
@@ -82,13 +84,13 @@ describe('STAFF-001 AC-006 HTTP boundaries', () => {
         Authorization: 'Bearer valid',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ name: 'Cafe', slug: 'cafe' }),
+      body: JSON.stringify({ name: 'Cafe' }),
     });
     expect(response.status).toBe(400);
     const wrongType = await app.request('/api/v1/restaurants', {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ name: 'Cafe', slug: 'cafe' }),
+      body: JSON.stringify({ name: 'Cafe' }),
     });
     expect(wrongType.status).toBe(400);
     expect(repository.execute).not.toHaveBeenCalled();

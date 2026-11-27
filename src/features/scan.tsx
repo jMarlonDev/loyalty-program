@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AccountSession } from '../components/account-session';
 import { Brand, Empty, ErrorNotice, Loading } from '../components/common';
 import { Button } from '../components/ui/button';
 import { useResource } from '../lib/api';
@@ -25,7 +26,11 @@ export function ScanPage() {
         ? parseCardScan(window.location.href, window.location.origin)
         : readPendingScan();
       if (fragment) {
-        window.history.replaceState(window.history.state, '', '/scan');
+        window.history.replaceState(
+          window.history.state,
+          '',
+          current?.purpose === 'reward' ? '/reward' : '/scan',
+        );
         clearPendingScan();
         if (current) setStorageAvailable(savePendingScan(current));
       }
@@ -97,20 +102,27 @@ export function ScanPage() {
                   <>
                     <p className="muted">{restaurant.data.name}</p>
                     <OperationsPanel
-                      key={`${scan.restaurantId}:${scan.token}`}
+                      key={`${scan.restaurantId}:${scan.token}:${scan.purpose}`}
                       restaurantId={scan.restaurantId}
-                      canManage={['owner', 'admin'].includes(
-                        restaurant.data.actor_role ?? '',
-                      )}
                       initialToken={scan.token}
+                      initialPurpose={scan.purpose}
                     />
                   </>
                 )}
                 {restaurant.error && (
-                  <p className="muted">
-                    Solo el personal autorizado de este restaurante puede abrir
-                    la tarjeta y registrar compras.
-                  </p>
+                  <AccountSession
+                    onSignedOut={() => {
+                      setStorageAvailable(savePendingScan(scan));
+                      setScan(scan);
+                    }}
+                  >
+                    <p className="muted">
+                      Solo el personal autorizado de este restaurante puede
+                      abrir la tarjeta y registrar compras. Si eres el cliente,
+                      muestra este QR al personal desde Mis tarjetas.
+                    </p>
+                    <a href="/cards">Ir a mis tarjetas</a>
+                  </AccountSession>
                 )}
               </>
             )}

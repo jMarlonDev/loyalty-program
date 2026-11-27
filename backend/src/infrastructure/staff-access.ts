@@ -15,7 +15,7 @@ export async function requireStaff(
   userId: string,
   restaurantId: string,
   allowed: StaffRole[],
-  options: { allowSuspendedOwner?: boolean } = {},
+  options: { allowSuspendedAdministration?: boolean } = {},
 ): Promise<StaffAccess> {
   const result = await client.query<
     StaffAccess & { restaurant_status: string }
@@ -34,7 +34,10 @@ export async function requireStaff(
   }
   if (
     staff.restaurant_status !== 'active' &&
-    !(options.allowSuspendedOwner && staff.role === 'owner')
+    !(
+      options.allowSuspendedAdministration &&
+      (staff.role === 'owner' || staff.role === 'admin')
+    )
   ) {
     throw new AppError(403, 'RESTAURANT_SUSPENDED', 'Restaurant is suspended');
   }
