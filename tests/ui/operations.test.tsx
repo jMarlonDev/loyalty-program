@@ -98,7 +98,7 @@ describe('operación autorizada por el servidor', () => {
       <OperationsPanel restaurantId={restaurantId} initialToken={token} />,
     );
     expect(
-      await screen.findByLabelText('Referencia única de venta'),
+      await screen.findByLabelText('Referencia del ticket (opcional)'),
     ).toBeVisible();
     expect(screen.getByText('••• ••• 45 67')).toBeVisible();
     expect(screen.queryByText(/Sucursal/i)).not.toBeInTheDocument();
@@ -115,7 +115,7 @@ describe('operación autorizada por el servidor', () => {
       <OperationsPanel restaurantId={restaurantId} initialToken={token} />,
     );
     fireEvent.change(
-      await screen.findByLabelText('Referencia única de venta'),
+      await screen.findByLabelText('Referencia del ticket (opcional)'),
       { target: { value: 'FACT-9001' } },
     );
     fireEvent.click(
@@ -161,7 +161,7 @@ describe('operación autorizada por el servidor', () => {
       body: { restaurant_id: restaurantId, token, purpose: 'reward' },
     });
     expect(
-      screen.queryByLabelText('Referencia única de venta'),
+      screen.queryByLabelText('Referencia del ticket (opcional)'),
     ).not.toBeInTheDocument();
     const confirm = screen.getByRole('checkbox');
     fireEvent.click(confirm);
@@ -176,9 +176,7 @@ describe('operación autorizada por el servidor', () => {
         body: { restaurant_id: restaurantId, token, confirm: true },
       }),
     );
-    expect(
-      screen.getByText('Premio entregado. El nuevo ciclo empieza en cero.'),
-    ).toBeVisible();
+    expect(screen.getByText('Premio canjeado: Un café')).toBeVisible();
   });
 
   it('prepara el enlace de WhatsApp sin afirmar que fue entregado', async () => {
@@ -234,9 +232,12 @@ describe('operación autorizada por el servidor', () => {
     expect(select).toHaveValue('l2');
     fireEvent.change(select, { target: { value: 'l1' } });
     expect(localStorage.getItem('loyalty:last-location')).toBe('l1');
-    fireEvent.change(screen.getByLabelText('Referencia única de venta'), {
-      target: { value: 'FACT-1' },
-    });
+    fireEvent.change(
+      screen.getByLabelText('Referencia del ticket (opcional)'),
+      {
+        target: { value: 'FACT-1' },
+      },
+    );
     fireEvent.click(screen.getByRole('button', { name: /Registrar compra/ }));
     await waitFor(() =>
       expect(state.call).toHaveBeenCalledWith({
@@ -258,5 +259,78 @@ describe('operación autorizada por el servidor', () => {
     );
     expect(await screen.findByText('Sucursal: Centro')).toBeVisible();
     expect(screen.queryByRole('combobox', { name: 'Sucursal' })).toBeNull();
+  });
+
+  it('la referencia es opcional y no se envía vacía', async () => {
+    render(
+      <OperationsPanel restaurantId={restaurantId} initialToken={token} />,
+    );
+    await screen.findByLabelText('Referencia del ticket (opcional)');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Registrar compra · +1 sello' }),
+    );
+    await waitFor(() =>
+      expect(state.call).toHaveBeenCalledWith({
+        path: '/operator/purchases',
+        body: { restaurant_id: restaurantId, token },
+      }),
+    );
+  });
+
+  async function failPurchase(code: string, message: string) {
+    state.call.mockImplementation(async (input: { path: string }) => {
+      if (input.path === '/operator/scans') return state.scan;
+      throw Object.assign(new Error(message), { code });
+    });
+    render(
+      <OperationsPanel restaurantId={restaurantId} initialToken={token} />,
+    );
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Registrar compra · +1 sello',
+      }),
+    );
+  }
+
+  it('muestra el tiempo de espera destacado', async () => {
+    await failPurchase('STAMP_COOLDOWN', 'Espera 3 h 59 min para otro sello.');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Espera 3 h 59 min para otro sello.');
+    expect(state.call).toHaveBeenCalledTimes(2);
+  });
+
+  it('explica el QR vencido', async () => {
+    await failPurchase('CARD_QR_EXPIRED', 'Este QR ya venció.');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Este QR ya venció.',
+    );
+  });
+
+  it('un canje repetido dice que el premio ya fue usado', async () => {
+    state.scan = scanResult({
+      reward: {
+        id: 'reward',
+        description: 'Un café',
+        status: 'available',
+        voucher_token: token,
+      },
+      allowed_actions: ['redeem'],
+    });
+    state.call.mockImplementation(async (input: { path: string }) => {
+      if (input.path === '/operator/scans') return state.scan;
+      throw Object.assign(new Error('x'), { code: 'REWARD_ALREADY_REDEEMED' });
+    });
+    render(
+      <OperationsPanel restaurantId={restaurantId} initialToken={token} />,
+    );
+    fireEvent.click(await screen.findByRole('checkbox'));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Confirmar entrega y reiniciar ciclo',
+      }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Este premio ya fue usado.',
+    );
   });
 });

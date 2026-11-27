@@ -198,9 +198,11 @@ function CustomerCardDetail({
   const card = useCustomerResource<CardView>(`/customer/cards/${cardId}`, {
     live: true,
   });
-  const qr = useCustomerResource<{ token: string }>(
-    `/customer/cards/${cardId}/qr`,
-  );
+  const qr = useCustomerResource<{
+    token: string;
+    rotates_at?: string;
+    expires_at?: string;
+  }>(`/customer/cards/${cardId}/qr`);
   const reissue = useCustomerAction<{ token: string; expires_at: string }>();
   const appOrigin = useAppOrigin();
   const closeCard = useCustomerAction<{
@@ -211,12 +213,44 @@ function CustomerCardDetail({
   const [leaving, setLeaving] = useState<'idle' | 'warn' | 'sure'>('idle');
   const [cached] = useState(() => readCardCache(cardId));
   useCardEvents(cardId);
+  const refetchQr = qr.refetch;
+  const rotatesAt = qr.data?.rotates_at;
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (!rotatesAt) {
+      setSecondsLeft(null);
+      return;
+    }
+    const target = Date.parse(rotatesAt);
+    if (Number.isNaN(target)) return;
+    const tick = () =>
+      setSecondsLeft(Math.max(0, Math.ceil((target - Date.now()) / 1000)));
+    tick();
+    const ticker = setInterval(tick, 1000);
+    const timer = setTimeout(
+      () => void refetchQr(),
+      Math.max(target - Date.now(), 5000),
+    );
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() >= target - 2000)
+        void refetchQr();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      clearInterval(ticker);
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [rotatesAt, refetchQr]);
   useEffect(() => {
     if (card.data) saveCardCache(card.data);
   }, [card.data]);
   const current = card.data ?? cached ?? undefined;
-  const pendingRewards =
-    current?.rewards.filter((item) => item.status === 'available').length ?? 0;
+  const availableRewards =
+    current?.rewards.filter((item) => item.status === 'available') ?? [];
+  const pendingRewards = availableRewards.length;
   async function leave() {
     try {
       await closeCard.mutateAsync({
@@ -235,19 +269,10 @@ function CustomerCardDetail({
           restaurantId: current.restaurant_id,
         })
       : undefined;
-  const rewardScan =
-    reward?.voucher?.token && current && appOrigin.origin
-      ? cardScanUrl(appOrigin.origin, {
-          token: reward.voucher.token,
-          restaurantId: current.restaurant_id,
-          purpose: 'reward',
-        })
-      : undefined;
-  async function reissueReward() {
-    if (!reward) return;
+  async function reissueReward(target: { id: string }) {
     try {
       await reissue.mutateAsync({
-        path: `/customer/rewards/${reward.id}/voucher/reissue`,
+        path: `/customer/rewards/${target.id}/voucher/reissue`,
       });
       setMessage('Generamos un código nuevo. El anterior ya no sirve.');
       void card.refetch();
@@ -271,6 +296,16 @@ function CustomerCardDetail({
                 : 'Muestra tu QR en cada compra. Cada visita suma un sello.'
             }
           />
+          {pendingRewards > 0 && (
+            <p className="notice notice-success" role="status">
+              <Gift size={18} />
+              <span>
+                {pendingRewards > 1
+                  ? `Tienes ${pendingRewards} premios pendientes. Puedes reclamarlos en el local o guardarlos y seguir acumulando sellos.`
+                  : 'Tienes un premio pendiente. Puedes reclamarlo en el local o guardarlo y seguir acumulando sellos.'}
+              </span>
+            </p>
+          )}
           <div className="customer-detail">
             <section className="stack">
               <LoyaltyCard
@@ -285,6 +320,11 @@ function CustomerCardDetail({
                   ? '. Se actualiza solo al registrar una compra.'
                   : ''}
               </p>
+              {secondsLeft !== null && (
+                <p className="field-hint" data-testid="qr-countdown">
+                  Tu QR se renueva solo en {secondsLeft} s.
+                </p>
+              )}
               {appOrigin.origin && !appOrigin.isPublic && (
                 <p className="notice">
                   Este enlace funciona en dispositivos conectados a la misma
@@ -318,44 +358,58 @@ function CustomerCardDetail({
             </section>
             <section className="stack">
               <h2>Tu premio</h2>
-              {reward ? (
+              {availableRewards.length > 0 ? (
                 <>
-                  <p className="notice notice-success">
-                    <Gift size={18} /> {reward.description}
-                  </p>
                   <p className="field-hint">
-                    Muestra este QR de canje al personal. No lo compartas con
+                    Muestra el QR de canje al personal. No lo compartas con
                     nadie más. El QR de tu tarjeta no sirve para canjear.
                   </p>
-                  {rewardScan ? (
-                    <ShareQr
-                      value={rewardScan}
-                      title="QR de tu premio"
-                      description="El personal lo escanea y confirma la entrega."
-                    />
-                  ) : (
-                    <Loading label="Preparando tu premio…" />
-                  )}
-                  <div className="button-row">
-                    {reward.whatsapp_url && (
-                      <Button asChild variant="secondary">
-                        <a
-                          href={reward.whatsapp_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Enviar a mi WhatsApp
-                        </a>
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      disabled={reissue.isPending}
-                      onClick={() => void reissueReward()}
-                    >
-                      Generar un código nuevo
-                    </Button>
-                  </div>
+                  {availableRewards.map((item) => {
+                    const itemScan =
+                      item.voucher?.token && appOrigin.origin
+                        ? cardScanUrl(appOrigin.origin, {
+                            token: item.voucher.token,
+                            restaurantId: current.restaurant_id,
+                            purpose: 'reward',
+                          })
+                        : undefined;
+                    return (
+                      <div className="stack" key={item.id}>
+                        <p className="notice notice-success">
+                          <Gift size={18} /> {item.description}
+                        </p>
+                        {itemScan ? (
+                          <ShareQr
+                            value={itemScan}
+                            title="QR de tu premio"
+                            description="El personal lo escanea y confirma la entrega."
+                          />
+                        ) : (
+                          <Loading label="Preparando tu premio…" />
+                        )}
+                        <div className="button-row">
+                          {item.whatsapp_url && (
+                            <Button asChild variant="secondary">
+                              <a
+                                href={item.whatsapp_url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Enviar a mi WhatsApp
+                              </a>
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            disabled={reissue.isPending}
+                            onClick={() => void reissueReward(item)}
+                          >
+                            Generar un código nuevo
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
                   <ErrorNotice error={reissue.error} />
                   {message && <p role="status">{message}</p>}
                 </>

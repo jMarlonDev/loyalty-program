@@ -24,6 +24,21 @@ function readLastLocation() {
   }
 }
 
+function friendlyError(error: unknown): Error | null {
+  if (!error) return null;
+  const code = (error as { code?: string }).code;
+  const message = error instanceof Error ? error.message : '';
+  if (code === 'CARD_QR_EXPIRED')
+    return new Error(
+      message ||
+        'Este QR ya venció. Pide al cliente que abra su tarjeta para mostrar el QR actual.',
+    );
+  if (code === 'STAMP_COOLDOWN') return new Error(message);
+  if (code === 'REWARD_ALREADY_REDEEMED' || /ya fue usado/i.test(message))
+    return new Error('Este premio ya fue usado.');
+  return error instanceof Error ? error : new Error('No pudimos completar.');
+}
+
 export function OperationsPanel({
   restaurantId,
   initialToken,
@@ -53,6 +68,7 @@ export function OperationsPanel({
   const [confirm, setConfirm] = useState(false);
   const [message, setMessage] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
+  const [opError, setOpError] = useState<unknown>(null);
   const [chosenLocation, setChosenLocation] = useState(readLastLocation);
   const autoLookup = useRef(false);
   const lookupRef = useRef<(value: string, kind: ScanPurpose) => Promise<void>>(
@@ -76,6 +92,7 @@ export function OperationsPanel({
       kind,
     );
     setScanError(null);
+    setOpError(null);
     setResult(null);
     setMessage('');
     setWhatsapp('');
@@ -114,16 +131,17 @@ export function OperationsPanel({
 
   async function purchase(event: FormEvent) {
     event.preventDefault();
-    if (!result || !reference.trim() || purchaseAction.isPending) return;
+    if (!result || purchaseAction.isPending) return;
     if (locations.length > 1 && !locationId) return;
     setMessage('');
+    setOpError(null);
     try {
       const next = await purchaseAction.mutateAsync({
         path: '/operator/purchases',
         body: {
           restaurant_id: restaurantId,
           token,
-          sale_reference: reference.trim(),
+          ...(reference.trim() ? { sale_reference: reference.trim() } : {}),
           ...(locationId ? { location_id: locationId } : {}),
         },
       });
@@ -156,13 +174,16 @@ export function OperationsPanel({
           ? 'Compra registrada. Hay un premio disponible.'
           : 'Compra registrada. Se sumó un sello.',
       );
-    } catch {}
+    } catch (error) {
+      setOpError(error);
+    }
   }
 
   async function redeem(event: FormEvent) {
     event.preventDefault();
     if (!result || !confirm || redeemAction.isPending) return;
     setMessage('');
+    setOpError(null);
     try {
       const next = await redeemAction.mutateAsync({
         path: '/operator/redemptions',
@@ -181,8 +202,12 @@ export function OperationsPanel({
         allowed_actions: ['purchase'],
       });
       setConfirm(false);
-      setMessage('Premio entregado. El nuevo ciclo empieza en cero.');
-    } catch {}
+      setMessage(
+        `Premio canjeado: ${result.reward?.description ?? 'entregado'}`,
+      );
+    } catch (error) {
+      setOpError(error);
+    }
   }
 
   async function resend() {
@@ -301,9 +326,12 @@ export function OperationsPanel({
       <ErrorNotice
         error={
           scanError ||
-          scanAction.error ||
-          purchaseAction.error ||
-          redeemAction.error ||
+          friendlyError(
+            scanAction.error ||
+              opError ||
+              purchaseAction.error ||
+              redeemAction.error,
+          ) ||
           resendAction.error
         }
       />
@@ -389,21 +417,21 @@ export function OperationsPanel({
                   </Field>
                 )}
                 <Field
-                  label="Referencia única de venta"
-                  hint="Número de recibo o factura. No se puede repetir en este restaurante."
+                  label="Referencia del ticket (opcional)"
+                  hint="Número de recibo o factura. Si la escribes, no se puede repetir en este restaurante."
                 >
                   {(id) => (
                     <Input
                       id={id}
                       value={reference}
                       onChange={(event) => setReference(event.target.value)}
-                      required
                       maxLength={100}
                       placeholder="Ej. FACT-1042"
                     />
                   )}
                 </Field>
                 <Button
+                  className="w-full"
                   disabled={
                     purchaseAction.isPending ||
                     (locations.length > 1 && !locationId)

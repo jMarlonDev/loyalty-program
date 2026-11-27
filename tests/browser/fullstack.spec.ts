@@ -399,7 +399,7 @@ test('dueño, empleado y cliente completan compra, premio y nuevo ciclo sin reca
       }),
     ).toBeVisible();
     await employee
-      .getByLabel('Referencia única de venta')
+      .getByLabel('Referencia del ticket (opcional)')
       .fill(`UI-${suffix}-1`);
     await employee
       .getByRole('button', { name: 'Registrar compra · +1 sello' })
@@ -413,7 +413,7 @@ test('dueño, empleado y cliente completan compra, premio y nuevo ciclo sin reca
     expect(customerDocumentLoads).toBe(0);
 
     await employee
-      .getByLabel('Referencia única de venta')
+      .getByLabel('Referencia del ticket (opcional)')
       .fill(`UI-${suffix}-2`);
     await employee
       .getByRole('button', { name: 'Registrar compra · +1 sello' })
