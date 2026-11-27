@@ -224,7 +224,26 @@ const graph: Record<string, Record<string, unknown>> = {
     session_id: ids.customer_sessions,
     expires_at: now,
   },
+  card_transfers: {
+    id: ids.card_transfers,
+    card_id: ids.loyalty_cards,
+    token_hash: randomUUID(),
+    created_by: ids.users,
+    expires_at: now,
+    created_at: now,
+  },
+  enrollment_attempts: {
+    id: ids.enrollment_attempts,
+    scope: 'ip',
+    key_hash: randomUUID(),
+    created_at: now,
+  },
 };
+// NEXT-006: el CHECK de memberships.previous_cards_count se llama *_previous_cards_check.
+const checkName = (table: string, column: string) =>
+  table === 'memberships' && column === 'previous_cards_count'
+    ? 'memberships_previous_cards_check'
+    : `${table}_${column}_check`;
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 const checks: [string, string, unknown][] = [
   ['restaurants', 'status', 'invalid'],
@@ -234,6 +253,8 @@ const checks: [string, string, unknown][] = [
   ['roles', 'rol_type', 'invalid'],
   ['memberships', 'status', 'invalid'],
   ['memberships', 'benefits_version', -1],
+  ['memberships', 'previous_cards_count', -1],
+  ['enrollment_attempts', 'scope', 'invalid'],
   ['loyalty_programs', 'status', 'invalid'],
   ['loyalty_programs', 'stamps_required', 0],
   ['loyalty_cards', 'status', 'invalid'],
@@ -471,7 +492,7 @@ describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
     async (table, column, value) => {
       await rejectMutation(table, column, value, {
         code: '23514',
-        constraint: `${table}_${column}_check`,
+        constraint: checkName(table, column),
       });
     },
   );
@@ -483,7 +504,7 @@ describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
       )
     ).rows.map((row) => row.conname);
     expect(actual).toEqual(
-      checks.map(([table, column]) => `${table}_${column}_check`).sort(),
+      checks.map(([table, column]) => checkName(table, column)).sort(),
     );
   });
 

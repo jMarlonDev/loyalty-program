@@ -64,8 +64,12 @@ describe('OPS-001 AC-005 OpenAPI executable contract', () => {
       for (const [method, operation] of Object.entries(methods)) {
         const isPublic =
           ['/health', '/ready', '/openapi.json'].includes(path) ||
-          (path === '/api/v1/public/programs/{code}' && method === 'get') ||
-          (path === '/api/v1/customer/session' && method === 'post');
+          (path === '/api/v1/public/programs/{code}' && method === 'get');
+        // NEXT-006: alta y transferencia, con o sin sesión del dispositivo.
+        const device = [
+          '/api/v1/customer/enrollments',
+          '/api/v1/customer/transfers/claim',
+        ].includes(path);
         const customer = path.startsWith('/api/v1/customer/');
         const security = (
           operation.security as { [key: string]: unknown }[]
@@ -73,9 +77,11 @@ describe('OPS-001 AC-005 OpenAPI executable contract', () => {
         expect(security, `${method} ${path}`).toEqual(
           isPublic
             ? []
-            : customer
-              ? ['customerSession']
-              : expect.arrayContaining(['bearerAuth']),
+            : device
+              ? [undefined, 'customerSession']
+              : customer
+                ? ['customerSession']
+                : expect.arrayContaining(['bearerAuth']),
         );
       }
   });
@@ -105,6 +111,11 @@ describe('OPS-001 AC-005 OpenAPI executable contract', () => {
             '/api/v1/customer/enrollments',
             '/api/v1/operator/scans',
             '/api/v1/operator/rewards/{rewardId}/resend',
+            // NEXT-006: reintentos sin doble efecto (cerrada → 409, token consumido → 409).
+            '/api/v1/customer/cards/{cardId}/close',
+            '/api/v1/customer/transfers/claim',
+            '/api/v1/restaurants/{restaurantId}/cards/{cardId}/transfers',
+            '/api/v1/restaurants/{restaurantId}/employees/{targetId}/transfer-permission',
           ].includes(path)
         )
           expect(operation.parameters).toContainEqual(

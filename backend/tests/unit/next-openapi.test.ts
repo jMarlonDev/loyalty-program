@@ -67,8 +67,8 @@ describe('NEXT-001/004 OpenAPI security contracts', () => {
     });
     for (const path of [
       '/api/v1/customer/session',
-      '/api/v1/customer/enrollments',
       '/api/v1/customer/cards',
+      '/api/v1/customer/cards/{cardId}/close',
       '/api/v1/customer/cards/{cardId}',
       '/api/v1/customer/cards/{cardId}/qr',
       '/api/v1/customer/rewards/{rewardId}/voucher',
@@ -76,17 +76,22 @@ describe('NEXT-001/004 OpenAPI security contracts', () => {
     ]) {
       expect(paths()[path], path).toBeDefined();
       for (const operation of Object.values(paths()[path] ?? {})) {
-        if (
-          path === '/api/v1/customer/session' &&
-          operation === paths()[path]?.post
-        ) {
-          expect(operation.security, path).toEqual([]);
-          continue;
-        }
         expect(operation.security, path).toEqual([{ customerSession: [] }]);
         expect(operation['x-implementation'], path).toBe('mounted');
       }
     }
+    // NEXT-006: alta y transferencia admiten dispositivo sin sesión o con ella.
+    for (const path of [
+      '/api/v1/customer/enrollments',
+      '/api/v1/customer/transfers/claim',
+    ])
+      expect(paths()[path]?.post?.security, path).toEqual([
+        {},
+        { customerSession: [] },
+      ]);
+    // NEXT-006: el teléfono ya no abre sesiones ni existe «cerrar sesión».
+    expect(paths()['/api/v1/customer/session']?.post).toBeUndefined();
+    expect(paths()['/api/v1/customer/session']?.delete).toBeUndefined();
     expect(paths()['/api/v1/customer/challenges']).toBeUndefined();
     expect(paths()['/api/v1/customer/challenges/verify']).toBeUndefined();
     expect(
@@ -96,9 +101,10 @@ describe('NEXT-001/004 OpenAPI security contracts', () => {
 
   it('requires CSRF origin on every mutation and on the websocket upgrade', () => {
     for (const [path, method] of [
-      ['/api/v1/customer/session', 'post'],
-      ['/api/v1/customer/session', 'delete'],
       ['/api/v1/customer/enrollments', 'post'],
+      ['/api/v1/customer/cards/{cardId}/close', 'post'],
+      ['/api/v1/customer/transfers/claim', 'post'],
+      ['/api/v1/restaurants/{restaurantId}/cards/{cardId}/transfers', 'post'],
       ['/api/v1/customer/rewards/{rewardId}/voucher/reissue', 'post'],
       ['/api/v1/operator/purchases', 'post'],
       ['/api/v1/operator/redemptions', 'post'],
@@ -123,8 +129,9 @@ describe('NEXT-001/004 OpenAPI security contracts', () => {
   it('excludes identity and balance overrides from customer requests', () => {
     const all = schemas();
     const expected = {
-      CustomerSessionInput: ['phone', 'country', 'public_code'],
-      CustomerEnrollmentInput: ['public_code'],
+      CustomerEnrollmentInput: ['public_code', 'phone', 'country'],
+      CardCloseInput: ['confirm'],
+      TransferClaimInput: ['token'],
       Empty: [],
     };
     for (const [name, properties] of Object.entries(expected)) {
@@ -134,9 +141,8 @@ describe('NEXT-001/004 OpenAPI security contracts', () => {
         name,
       ).toEqual(properties);
     }
-    expect((schemas().CustomerSessionInput as JsonObject).required).toEqual([
-      'phone',
-      'country',
+    expect((schemas().CustomerEnrollmentInput as JsonObject).required).toEqual([
+      'public_code',
     ]);
     expect((all.CardQr?.properties as JsonObject)?.purpose).toEqual({
       type: 'string',
@@ -155,15 +161,11 @@ describe('NEXT-001/004 OpenAPI security contracts', () => {
     ).toEqual(['card_id', 'event_id', 'type', 'version']);
   });
 
-  it('documents empty logout and reusable schemas without unresolved references', () => {
-    const logout = paths()['/api/v1/customer/session']?.delete
+  it('documents enrollment outcomes and reusable schemas without unresolved references', () => {
+    const enrollment = paths()['/api/v1/customer/enrollments']?.post
       ?.responses as JsonObject;
-    expect(logout?.['204']).toBeDefined();
-    expect((logout?.['204'] as JsonObject)?.content).toBeUndefined();
-    const session = paths()['/api/v1/customer/session']?.post
-      ?.responses as JsonObject;
-    for (const code of ['201', '400', '403', '429', '503'])
-      expect(session?.[code]).toBeDefined();
+    for (const code of ['200', '201', '400', '403', '409', '429', '503'])
+      expect(enrollment?.[code]).toBeDefined();
     const traverse = (value: unknown) => {
       if (value === null || typeof value !== 'object') return;
       for (const [name, entry] of Object.entries(value)) {

@@ -141,7 +141,7 @@ describe('NEXT-001/003 ciclo completo HTTP + PostgreSQL', () => {
     const session = await call(
       null,
       'POST',
-      '/customer/session',
+      '/customer/enrollments',
       {
         phone: '3009876543',
         country: 'CO',
@@ -160,10 +160,10 @@ describe('NEXT-001/003 ciclo completo HTTP + PostgreSQL', () => {
       'POST',
       '/customer/enrollments',
       { public_code: program.public_code },
-      201,
+      200,
       { customer: customerToken ?? '' },
     );
-    expect(repeated.body.data.id).toBe(card.id);
+    expect(repeated.body.data.card.id).toBe(card.id);
 
     const qr = await call(
       'customer',

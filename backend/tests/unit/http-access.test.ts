@@ -7,8 +7,8 @@ const publicRoutes = new Set([
   'GET /ready',
   'GET /openapi.json',
   'GET /api/v1/public/programs/:code',
-  'POST /api/v1/customer/session',
-  'DELETE /api/v1/customer/session',
+  'POST /api/v1/customer/enrollments',
+  'POST /api/v1/customer/transfers/claim',
 ]);
 function fixture() {
   const query = vi.fn();

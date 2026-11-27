@@ -50,7 +50,12 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
         restaurants: ['owner_user_id'],
         loyalty_cards: ['version'],
         rewards: ['accounting_mode', 'cycle_id'],
-        restaurant_employees: ['phone'],
+        restaurant_employees: ['phone', 'can_transfer_cards'],
+        memberships: [
+          'is_reenrollment',
+          'previous_cards_count',
+          'close_reason',
+        ],
       };
       for (const table of [
         'card_events_outbox',
@@ -61,6 +66,8 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
         'reward_vouchers',
         'reward_deliveries',
         'customer_event_leases',
+        'card_transfers',
+        'enrollment_attempts',
       ]) {
         expect(after[table]).toEqual([]);
         delete after[table];
@@ -109,7 +116,7 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
             'SELECT * FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(7);
+      ).toBe(8);
     } finally {
       await database.cleanup();
     }
@@ -250,7 +257,7 @@ describe('NEXT-005 / DB-006: upgrade técnico desde 0004', () => {
             'SELECT * FROM drizzle.__drizzle_migrations',
           )
         ).rowCount,
-      ).toBe(7);
+      ).toBe(8);
       expect(
         (
           await restored.pool.query(

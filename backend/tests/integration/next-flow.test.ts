@@ -113,7 +113,7 @@ describe('NEXT-001/003 HTTP + PostgreSQL end-to-end', () => {
     });
 
   it('AC-02/05/06/09/11/12 enrols, stamps, rewards and redeems once', async () => {
-    const session = await request('POST', '/customer/session', {
+    const session = await request('POST', '/customer/enrollments', {
       body: {
         phone: '3001234567',
         country: 'CO',
@@ -131,8 +131,8 @@ describe('NEXT-001/003 HTTP + PostgreSQL end-to-end', () => {
       customer: customerToken,
       body: { public_code: publicCode },
     });
-    expect(repeated.status).toBe(201);
-    expect((await repeated.json()).data.id).toBe(cardId);
+    expect(repeated.status).toBe(200);
+    expect((await repeated.json()).data.card.id).toBe(cardId);
 
     const qr = await request('GET', `/customer/cards/${cardId}/qr`, {
       customer: customerToken,
