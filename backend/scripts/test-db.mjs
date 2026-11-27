@@ -57,7 +57,7 @@ try {
   ]);
   started = true;
   let ready = false;
-  for (let attempt = 0; attempt < 60; attempt++) {
+  for (let attempt = 0; attempt < 160; attempt++) {
     try {
       await run('docker', [
         'exec',
@@ -83,15 +83,18 @@ try {
   if (!port) throw new Error('Unexpected test container binding.');
   const env = {
     ...process.env,
+    TEST_DATABASE_CONTAINER: name,
     TEST_DATABASE_URL: `postgresql://loyalty_test:${password}@127.0.0.1:${port}/loyalty_test_control`,
   };
   delete env.DATABASE_URL;
   const browser = process.argv[2] === '--browser';
   const browserArgs = process.argv
     .slice(3)
-    .filter((value) => value !== '--production');
+    .filter((value) => !['--production', '--https'].includes(value));
   if (browser && process.argv.includes('--production'))
     env.LOYALTY_BROWSER_PRODUCTION = '1';
+  if (browser && process.argv.includes('--https'))
+    env.LOYALTY_BROWSER_HTTPS = '1';
   const args = browser
     ? ['--prefix', '..', 'run', 'test:browser', '--', ...browserArgs]
     : ['test', '--', ...process.argv.slice(2)];

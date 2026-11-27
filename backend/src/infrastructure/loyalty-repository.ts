@@ -292,7 +292,6 @@ export class PgLoyaltyRepository implements LoyaltyRepository {
       const staff = await requireStaff(client, actor, restaurant, [
         'owner',
         'admin',
-        'employee',
       ]);
       const reward = (
         await client.query<{
@@ -598,11 +597,7 @@ export class PgLoyaltyRepository implements LoyaltyRepository {
     return withTransaction(this.pool, async (client) => {
       await lockRestaurant(client, restaurant);
       await lockActor(client, actor);
-      await requireStaff(client, actor, restaurant, [
-        'owner',
-        'admin',
-        'employee',
-      ]);
+      await requireStaff(client, actor, restaurant, ['owner', 'admin']);
       const card = await cardContext(client, cardId, restaurant);
       return idempotent(
         client,

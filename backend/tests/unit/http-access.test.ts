@@ -7,6 +7,8 @@ const publicRoutes = new Set([
   'GET /ready',
   'GET /openapi.json',
   'GET /api/v1/public/programs/:code',
+  'POST /api/v1/customer/session',
+  'DELETE /api/v1/customer/session',
 ]);
 function fixture() {
   const query = vi.fn();
@@ -16,6 +18,7 @@ function fixture() {
     pool: { query, connect } as unknown as Pool,
     identityProvider: { verifyAccessToken },
     cardTokenEncryptionKey: 'ab'.repeat(32),
+    publicOrigin: 'https://loyalty.example',
   });
   return { app, query, connect, verifyAccessToken };
 }
@@ -37,7 +40,10 @@ describe('BACKEND-001 AC-005 acceso anónimo en todas las rutas privadas montada
         ),
         {
           method,
-          headers: { 'X-Request-Id': 'access-contract' },
+          headers: {
+            'X-Request-Id': 'access-contract',
+            Origin: 'https://loyalty.example',
+          },
         },
       );
       expect(response.status).toBe(401);

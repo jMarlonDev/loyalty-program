@@ -13,6 +13,11 @@ const tables = Object.values(schema).map(getTableConfig);
 const ids = Object.fromEntries(
   tables.map((table) => [table.name, randomUUID()]),
 );
+ids.customers = ids.users!;
+const primaryKey = (tableName: string) =>
+  tables
+    .find((table) => table.name === tableName)
+    ?.columns.find((column) => column.primary)?.name ?? 'id';
 const now = new Date().toISOString();
 const timestamps = { created_at: now, updated_at: now };
 const graph: Record<string, Record<string, unknown>> = {
@@ -25,7 +30,6 @@ const graph: Record<string, Record<string, unknown>> = {
   restaurants: {
     id: ids.restaurants,
     name: 'SQL restaurant',
-    slug: randomUUID(),
     status: 'active',
     ...timestamps,
   },
@@ -150,6 +154,76 @@ const graph: Record<string, Record<string, unknown>> = {
     details: {},
     created_at: now,
   },
+  card_events_outbox: {
+    id: ids.card_events_outbox,
+    card_id: ids.loyalty_cards,
+    version: 1,
+    type: 'card.changed',
+    occurred_at: now,
+    available_at: now,
+  },
+  customers: {
+    id: ids.users,
+    phone: '+573001112233',
+    country: 'CO',
+    status: 'active',
+    phone_verified_at: now,
+    ...timestamps,
+  },
+  customer_sessions: {
+    id: ids.customer_sessions,
+    customer_id: ids.users,
+    token_hash: randomUUID(),
+    expires_at: now,
+    last_seen_at: now,
+    created_at: now,
+  },
+  operator_invitations: {
+    id: ids.operator_invitations,
+    restaurant_id: ids.restaurants,
+    email: 'operator@example.test',
+    phone: '+573001112244',
+    token_hash: randomUUID(),
+    status: 'accepted',
+    expires_at: now,
+    invited_by: ids.users,
+    accepted_by: ids.users,
+    created_at: now,
+    accepted_at: now,
+  },
+  loyalty_cycles: {
+    id: ids.loyalty_cycles,
+    membership_id: ids.memberships,
+    number: 1,
+    state: 'collecting',
+    stamps: 0,
+    target: 1,
+    opened_at: now,
+  },
+  reward_vouchers: {
+    id: ids.reward_vouchers,
+    reward_id: ids.rewards,
+    token_hash: randomUUID(),
+    token_encrypted: randomUUID(),
+    status: 'consumed',
+    version: 1,
+    consumed_at: now,
+    created_at: now,
+  },
+  reward_deliveries: {
+    id: ids.reward_deliveries,
+    reward_id: ids.rewards,
+    channel: 'whatsapp_manual',
+    status: 'delivered',
+    recipient_phone: '+573001112233',
+    created_at: now,
+    updated_at: now,
+  },
+  customer_event_leases: {
+    lease_token: ids.customer_event_leases,
+    session_id: ids.customer_sessions,
+    expires_at: now,
+  },
 };
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 const checks: [string, string, unknown][] = [
@@ -163,12 +237,32 @@ const checks: [string, string, unknown][] = [
   ['loyalty_programs', 'status', 'invalid'],
   ['loyalty_programs', 'stamps_required', 0],
   ['loyalty_cards', 'status', 'invalid'],
+  ['loyalty_cards', 'version', -1],
   ['purchases', 'stamps_earned', 0],
   ['loyalty_ledger_entries', 'stamp_delta', 0],
   ['rewards', 'stamps_spent', 0],
   ['rewards', 'status', 'invalid'],
+  ['rewards', 'accounting_mode', 'invalid'],
   ['invitations', 'status', 'invalid'],
   ['closure_consents', 'benefits_version', -1],
+  ['card_events_outbox', 'version', 0],
+  ['card_events_outbox', 'attempts', -1],
+  ['card_events_outbox', 'type', 'invalid'],
+  ['card_events_outbox', 'lease_token', randomUUID()],
+  ['customers', 'status', 'invalid'],
+  ['customers', 'country', 'xx'],
+  ['customers', 'phone', 'invalid'],
+  ['operator_invitations', 'status', 'invalid'],
+  ['operator_invitations', 'email', 'Invalid'],
+  ['operator_invitations', 'phone', 'invalid'],
+  ['loyalty_cycles', 'number', 0],
+  ['loyalty_cycles', 'stamps', -1],
+  ['loyalty_cycles', 'target', 0],
+  ['loyalty_cycles', 'state', 'invalid'],
+  ['reward_vouchers', 'version', 0],
+  ['reward_vouchers', 'status', 'invalid'],
+  ['reward_deliveries', 'channel', 'invalid'],
+  ['reward_deliveries', 'status', 'invalid'],
 ];
 
 describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
@@ -236,17 +330,19 @@ describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
     value: unknown,
     error: Record<string, unknown>,
   ) {
+    const key = primaryKey(table);
     const original = (
-      await database.pool.query(`SELECT * FROM ${quote(table)} WHERE id=$1`, [
-        ids[table],
-      ])
+      await database.pool.query(
+        `SELECT * FROM ${quote(table)} WHERE ${quote(key)}=$1`,
+        [ids[table]],
+      )
     ).rows;
     const client = await database.pool.connect();
     try {
       await client.query('BEGIN');
       await expect(
         client.query(
-          `UPDATE ${quote(table)} SET ${quote(column)}=$1 WHERE id=$2`,
+          `UPDATE ${quote(table)} SET ${quote(column)}=$1 WHERE ${quote(key)}=$2`,
           [value, ids[table]],
         ),
       ).rejects.toMatchObject(error);
@@ -256,23 +352,25 @@ describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
     }
     expect(
       (
-        await database.pool.query(`SELECT * FROM ${quote(table)} WHERE id=$1`, [
-          ids[table],
-        ])
+        await database.pool.query(
+          `SELECT * FROM ${quote(table)} WHERE ${quote(key)}=$1`,
+          [ids[table]],
+        )
       ).rows,
     ).toEqual(original);
   }
 
-  it('inserta y recupera las 16 tablas y la cadena cliente → tarjeta → compra → premio', async () => {
+  it('inserta y recupera las 24 tablas y la cadena cliente → tarjeta → compra → premio', async () => {
     for (const table of Object.keys(graph)) {
+      const key = primaryKey(table);
       expect(
         (
           await database.pool.query(
-            `SELECT id FROM ${quote(table)} WHERE id=$1`,
+            `SELECT ${quote(key)} FROM ${quote(table)} WHERE ${quote(key)}=$1`,
             [ids[table]],
           )
         ).rows,
-      ).toEqual([{ id: ids[table] }]);
+      ).toEqual([{ [key]: ids[table] }]);
     }
     const chain = await database.pool.query(
       `SELECT u.id AS user_id, c.id AS card_id, p.id AS purchase_id, r.id AS reward_id, e.restaurant_id
@@ -361,9 +459,10 @@ describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
       });
     }
     it(`rechaza NULL en la clave primaria de ${table.name}`, async () => {
-      await rejectMutation(table.name, 'id', null, {
+      const key = primaryKey(table.name);
+      await rejectMutation(table.name, key, null, {
         code: '23502',
-        column: 'id',
+        column: key,
       });
     });
   }
@@ -425,13 +524,14 @@ describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
     table: string,
     overrides: Record<string, unknown> = {},
   ) {
-    const row = { ...graph[table], id: randomUUID(), ...overrides };
+    const key = primaryKey(table);
+    const row = { ...graph[table], [key]: randomUUID(), ...overrides };
     const columns = Object.keys(row);
     await client.query(
       `INSERT INTO ${quote(table)} (${columns.map(quote).join(',')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(',')})`,
       Object.values(row),
     );
-    return row.id;
+    return row[key];
   }
 
   it('DB-004: un rol ordinario no lee, inserta, actualiza ni elimina filas de ninguna tabla', async () => {
@@ -444,12 +544,18 @@ describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
       );
       await client.query(`SET LOCAL ROLE ${role}`);
       for (const table of Object.keys(graph)) {
+        const key = primaryKey(table);
         expect(
-          (await client.query(`SELECT id FROM ${quote(table)}`)).rows,
+          (await client.query(`SELECT ${quote(key)} FROM ${quote(table)}`))
+            .rows,
           table,
         ).toEqual([]);
         expect(
-          (await client.query(`UPDATE ${quote(table)} SET id=id`)).rowCount,
+          (
+            await client.query(
+              `UPDATE ${quote(table)} SET ${quote(key)}=${quote(key)}`,
+            )
+          ).rowCount,
           table,
         ).toBe(0);
         expect(
@@ -464,10 +570,11 @@ describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
       }
     });
     for (const table of Object.keys(graph)) {
+      const key = primaryKey(table);
       expect(
         (
           await database.pool.query(
-            `SELECT id FROM ${quote(table)} WHERE id=$1`,
+            `SELECT ${quote(key)} FROM ${quote(table)} WHERE ${quote(key)}=$1`,
             [ids[table]],
           )
         ).rowCount,
@@ -476,7 +583,6 @@ describe('TESTDB-001 AC-006/007: integridad real del grafo SQL', () => {
   });
 
   it.each([
-    ['restaurants', 'restaurants_slug_unique'],
     ['roles', 'roles_rol_type_unique'],
     ['restaurant_employees', 'restaurant_employees_user_restaurant_unique'],
     ['loyalty_programs', 'loyalty_programs_public_code_unique'],

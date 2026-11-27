@@ -50,7 +50,7 @@ export function requireUuid(value: string): string {
 }
 
 const fields: Record<StaffAction, string[]> = {
-  'restaurant.create': ['name', 'slug', 'email', 'phone'],
+  'restaurant.create': ['name', 'email', 'phone'],
   'restaurant.update': ['name', 'email', 'phone', 'status'],
   'location.create': ['name', 'address', 'city', 'department', 'phone'],
   'location.update': [
@@ -81,7 +81,7 @@ export function parseStaffInput(
   if (!names.length && action !== 'invitation.revoke') throw invalid();
   const required =
     action === 'restaurant.create'
-      ? ['name', 'slug']
+      ? ['name']
       : action === 'location.create'
         ? ['name', 'address', 'city', 'department']
         : action === 'invitation.create'
@@ -111,8 +111,6 @@ export function parseStaffInput(
     )
       throw invalid();
     if (name === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text))
-      throw invalid();
-    if (name === 'slug' && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(text))
       throw invalid();
     if (name === 'role' && !['admin', 'employee'].includes(text))
       throw invalid();

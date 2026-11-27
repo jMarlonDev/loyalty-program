@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   foreignKey,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -20,15 +21,22 @@ export const restaurants = pgTable(
   {
     id: uuid('id').primaryKey().notNull(),
     name: varchar('name', { length: 255 }).notNull(),
-    slug: varchar('slug', { length: 255 }).notNull().unique(),
     email: varchar('email', { length: 255 }),
     phone: varchar('phone', { length: 255 }),
+    owner_user_id: uuid('owner_user_id'),
     status: varchar('status', { length: 20 }).notNull(),
     created_at: timestamp('created_at', { withTimezone: true }).notNull(),
     updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
-  () => [
+  (table) => [
     check('restaurants_status_check', sql`status IN ('active', 'suspended')`),
+    foreignKey({
+      name: 'fk_restaurants_owner_user',
+      columns: [table.owner_user_id],
+      foreignColumns: [users.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
   ],
 ).enableRLS();
 
@@ -85,6 +93,7 @@ export const restaurant_employees = pgTable(
     user_id: uuid('user_id').notNull(),
     restaurant_id: uuid('restaurant_id').notNull(),
     role_id: uuid('role_id').notNull(),
+    phone: varchar('phone', { length: 32 }),
     status: varchar('status', { length: 20 }).notNull(),
     joined_at: timestamp('joined_at', { withTimezone: true }).notNull(),
     ended_at: timestamp('ended_at', { withTimezone: true }),
@@ -221,11 +230,13 @@ export const loyalty_cards = pgTable(
     membership_id: uuid('membership_id').notNull().unique(),
     qr_token_hash: text('qr_token_hash').notNull().unique(),
     qr_token_encrypted: text('qr_token_encrypted'),
+    version: integer('version').notNull().default(0),
     status: varchar('status', { length: 20 }).notNull(),
     created_at: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (table) => [
     check('loyalty_cards_status_check', sql`status IN ('active', 'blocked')`),
+    check('loyalty_cards_version_check', sql`version >= 0`),
     foreignKey({
       name: 'fk_loyalty_cards_membership',
       columns: [table.membership_id],
@@ -346,8 +357,12 @@ export const rewards = pgTable(
   {
     id: uuid('id').primaryKey().notNull(),
     membership_id: uuid('membership_id').notNull(),
+    cycle_id: uuid('cycle_id'),
     description: varchar('description', { length: 255 }).notNull(),
     stamps_spent: integer('stamps_spent').notNull(),
+    accounting_mode: varchar('accounting_mode', { length: 30 })
+      .notNull()
+      .default('legacy_debited'),
     status: varchar('status', { length: 255 }).notNull(),
     earned_at: timestamp('earned_at', { withTimezone: true }).notNull(),
     redeemed_at: timestamp('redeemed_at', { withTimezone: true }),
@@ -365,6 +380,10 @@ export const rewards = pgTable(
       .onUpdate('no action'),
     check('rewards_stamps_spent_check', sql`stamps_spent > 0`),
     check(
+      'rewards_accounting_mode_check',
+      sql`accounting_mode IN ('legacy_debited', 'debit_on_redemption')`,
+    ),
+    check(
       'rewards_status_check',
       sql`status IN ('available', 'redeemed', 'cancelled')`,
     ),
@@ -379,6 +398,13 @@ export const rewards = pgTable(
       name: 'fk_rewards_memberships',
       columns: [table.membership_id],
       foreignColumns: [memberships.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+    foreignKey({
+      name: 'fk_rewards_cycle',
+      columns: [table.cycle_id],
+      foreignColumns: [loyalty_cycles.id],
     })
       .onUpdate('no action')
       .onDelete('no action'),
@@ -556,5 +582,296 @@ export const audit_events = pgTable(
     })
       .onDelete('no action')
       .onUpdate('no action'),
+  ],
+).enableRLS();
+
+// DB-006 / NEXT-005: infraestructura inerte hasta integrar operaciones y worker.
+export const card_events_outbox = pgTable(
+  'card_events_outbox',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    card_id: uuid('card_id').notNull(),
+    version: integer('version').notNull(),
+    type: varchar('type', { length: 30 }).notNull(),
+    occurred_at: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    available_at: timestamp('available_at', { withTimezone: true }).notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    lease_token: uuid('lease_token'),
+    lease_until: timestamp('lease_until', { withTimezone: true }),
+    published_at: timestamp('published_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('card_events_outbox_card_version_unique').on(
+      table.card_id,
+      table.version,
+    ),
+    index('card_events_outbox_pending_idx')
+      .on(table.available_at, table.lease_until)
+      .where(sql`published_at IS NULL`),
+    foreignKey({
+      name: 'fk_card_events_outbox_card',
+      columns: [table.card_id],
+      foreignColumns: [loyalty_cards.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+    check('card_events_outbox_version_check', sql`version > 0`),
+    check('card_events_outbox_attempts_check', sql`attempts >= 0`),
+    check(
+      'card_events_outbox_type_check',
+      sql`type IN ('purchase.recorded', 'reward.available', 'reward.redeemed', 'card.changed')`,
+    ),
+    check(
+      'card_events_outbox_lease_token_check',
+      sql`(lease_token IS NULL) = (lease_until IS NULL)`,
+    ),
+  ],
+).enableRLS();
+
+// NEXT-001: identidad de cliente por teléfono. El UUID interno es la clave y
+// los usuarios heredados se conservan para no perder tarjetas ni historial.
+export const customers = pgTable(
+  'customers',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    phone: varchar('phone', { length: 32 }).notNull(),
+    country: varchar('country', { length: 2 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('active'),
+    phone_verified_at: timestamp('phone_verified_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    unique('customers_phone_unique').on(table.phone),
+    check(
+      'customers_status_check',
+      sql`status IN ('active', 'suspended', 'closed')`,
+    ),
+    check(
+      'customers_country_check',
+      sql`country = upper(country) AND length(country) = 2`,
+    ),
+    check(
+      'customers_phone_check',
+      sql`phone LIKE '+%' AND length(phone) BETWEEN 8 AND 16`,
+    ),
+    foreignKey({
+      name: 'fk_customers_user',
+      columns: [table.id],
+      foreignColumns: [users.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+  ],
+).enableRLS();
+
+export const customer_sessions = pgTable(
+  'customer_sessions',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    customer_id: uuid('customer_id').notNull(),
+    token_hash: text('token_hash').notNull(),
+    expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revoked_at: timestamp('revoked_at', { withTimezone: true }),
+    last_seen_at: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    unique('customer_sessions_token_hash_unique').on(table.token_hash),
+    index('customer_sessions_customer_idx').on(
+      table.customer_id,
+      table.expires_at,
+    ),
+    foreignKey({
+      name: 'fk_customer_sessions_customer',
+      columns: [table.customer_id],
+      foreignColumns: [customers.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+  ],
+).enableRLS();
+
+export const operator_invitations = pgTable(
+  'operator_invitations',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    restaurant_id: uuid('restaurant_id').notNull(),
+    email: varchar('email', { length: 255 }).notNull(),
+    phone: varchar('phone', { length: 32 }).notNull(),
+    token_hash: text('token_hash').notNull(),
+    status: varchar('status', { length: 20 }).notNull(),
+    expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+    invited_by: uuid('invited_by').notNull(),
+    accepted_by: uuid('accepted_by'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+    accepted_at: timestamp('accepted_at', { withTimezone: true }),
+    revoked_at: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('operator_invitations_token_hash_unique').on(table.token_hash),
+    index('operator_invitations_restaurant_idx').on(
+      table.restaurant_id,
+      table.status,
+    ),
+    check(
+      'operator_invitations_status_check',
+      sql`status IN ('pending', 'accepted', 'revoked', 'expired')`,
+    ),
+    check(
+      'operator_invitations_email_check',
+      sql`email = lower(email) AND position('@' in email) > 1`,
+    ),
+    check(
+      'operator_invitations_phone_check',
+      sql`phone LIKE '+%' AND length(phone) BETWEEN 8 AND 16`,
+    ),
+    foreignKey({
+      name: 'fk_operator_invitations_restaurant',
+      columns: [table.restaurant_id],
+      foreignColumns: [restaurants.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+    foreignKey({
+      name: 'fk_operator_invitations_issuer',
+      columns: [table.invited_by],
+      foreignColumns: [users.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+    foreignKey({
+      name: 'fk_operator_invitations_acceptor',
+      columns: [table.accepted_by],
+      foreignColumns: [users.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+  ],
+).enableRLS();
+
+export const loyalty_cycles = pgTable(
+  'loyalty_cycles',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    membership_id: uuid('membership_id').notNull(),
+    number: integer('number').notNull(),
+    state: varchar('state', { length: 30 }).notNull(),
+    stamps: integer('stamps').notNull(),
+    target: integer('target').notNull(),
+    opened_at: timestamp('opened_at', { withTimezone: true }).notNull(),
+    closed_at: timestamp('closed_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('loyalty_cycles_membership_number_unique').on(
+      table.membership_id,
+      table.number,
+    ),
+    index('loyalty_cycles_open_idx')
+      .on(table.membership_id, table.state)
+      .where(sql`state <> 'redeemed'`),
+    check('loyalty_cycles_number_check', sql`number > 0`),
+    check('loyalty_cycles_stamps_check', sql`stamps >= 0`),
+    check('loyalty_cycles_target_check', sql`target > 0`),
+    check(
+      'loyalty_cycles_state_check',
+      sql`state IN ('collecting', 'reward_available', 'redeemed')`,
+    ),
+    foreignKey({
+      name: 'fk_loyalty_cycles_membership',
+      columns: [table.membership_id],
+      foreignColumns: [memberships.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+  ],
+).enableRLS();
+
+export const reward_vouchers = pgTable(
+  'reward_vouchers',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    reward_id: uuid('reward_id').notNull(),
+    token_hash: text('token_hash').notNull(),
+    token_encrypted: text('token_encrypted').notNull(),
+    status: varchar('status', { length: 20 }).notNull(),
+    version: integer('version').notNull().default(1),
+    expires_at: timestamp('expires_at', { withTimezone: true }),
+    consumed_at: timestamp('consumed_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    unique('reward_vouchers_token_hash_unique').on(table.token_hash),
+    uniqueIndex('reward_vouchers_active_reward_unique')
+      .on(table.reward_id)
+      .where(sql`status = 'active'`),
+    check('reward_vouchers_version_check', sql`version > 0`),
+    check(
+      'reward_vouchers_status_check',
+      sql`status IN ('active', 'consumed', 'revoked', 'expired')`,
+    ),
+    foreignKey({
+      name: 'fk_reward_vouchers_reward',
+      columns: [table.reward_id],
+      foreignColumns: [rewards.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+  ],
+).enableRLS();
+
+export const reward_deliveries = pgTable(
+  'reward_deliveries',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    reward_id: uuid('reward_id').notNull(),
+    channel: varchar('channel', { length: 30 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull(),
+    recipient_phone: varchar('recipient_phone', { length: 32 }).notNull(),
+    last_error: text('last_error'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index('reward_deliveries_reward_idx').on(table.reward_id, table.created_at),
+    check(
+      'reward_deliveries_channel_check',
+      sql`channel IN ('whatsapp_manual', 'whatsapp_provider')`,
+    ),
+    check(
+      'reward_deliveries_status_check',
+      sql`status IN ('not_requested', 'pending', 'accepted', 'delivered', 'failed')`,
+    ),
+    foreignKey({
+      name: 'fk_reward_deliveries_reward',
+      columns: [table.reward_id],
+      foreignColumns: [rewards.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+  ],
+).enableRLS();
+
+// Las conexiones WebSocket se cuentan fuera de memoria para respetar el
+// límite entre procesos cuando el despliegue use más de una instancia.
+export const customer_event_leases = pgTable(
+  'customer_event_leases',
+  {
+    lease_token: uuid('lease_token').primaryKey().notNull(),
+    session_id: uuid('session_id').notNull(),
+    expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index('customer_event_leases_session_idx').on(
+      table.session_id,
+      table.expires_at,
+    ),
+    foreignKey({
+      name: 'fk_customer_event_leases_session',
+      columns: [table.session_id],
+      foreignColumns: [customer_sessions.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
   ],
 ).enableRLS();

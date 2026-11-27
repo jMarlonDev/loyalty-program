@@ -16,11 +16,11 @@ describe('TESTDB-001: migraciones PostgreSQL reales', () => {
     await database?.cleanup();
   });
 
-  it('AC-002/003: crea las 16 tablas y reaplica sin duplicar historial ni datos', async () => {
+  it('AC-002/003: crea las 24 tablas y reaplica sin duplicar historial ni datos', async () => {
     const tables = await database.pool.query(
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
     );
-    expect(tables.rowCount).toBe(16);
+    expect(tables.rowCount).toBe(24);
     const id = randomUUID();
     await database.pool.query(
       "INSERT INTO users (id, full_name, status, created_at, updated_at) VALUES ($1, 'Fixture', 'active', now(), now())",
@@ -30,7 +30,7 @@ describe('TESTDB-001: migraciones PostgreSQL reales', () => {
     const history = await database.pool.query(
       'SELECT * FROM drizzle.__drizzle_migrations',
     );
-    expect(history.rowCount).toBe(4);
+    expect(history.rowCount).toBe(7);
     expect(
       (await database.pool.query('SELECT id FROM users WHERE id = $1', [id]))
         .rowCount,
@@ -39,32 +39,21 @@ describe('TESTDB-001: migraciones PostgreSQL reales', () => {
 
   it('AC-004: rechaza CHECK y unicidad sin persistir filas inválidas', async () => {
     const insert =
-      'INSERT INTO restaurants (id, name, slug, status, created_at, updated_at) VALUES ($1, $2, $3, $4, now(), now())';
-    const slug = `fixture-${randomUUID()}`;
-    await database.pool.query(insert, [
-      randomUUID(),
-      'Fixture',
-      slug,
-      'active',
-    ]);
+      'INSERT INTO restaurants (id, name, status, created_at, updated_at) VALUES ($1, $2, $3, now(), now())';
+    const id = randomUUID();
+    await database.pool.query(insert, [id, 'Fixture', 'active']);
     await expect(
-      database.pool.query(insert, [randomUUID(), 'Duplicate', slug, 'active']),
+      database.pool.query(insert, [id, 'Duplicate', 'active']),
     ).rejects.toMatchObject({ code: '23505' });
     const invalid = randomUUID();
     await expect(
-      database.pool.query(insert, [
-        invalid,
-        'Invalid',
-        `invalid-${slug}`,
-        'invalid',
-      ]),
+      database.pool.query(insert, [invalid, 'Invalid', 'invalid']),
     ).rejects.toMatchObject({ code: '23514' });
     expect(
       (
-        await database.pool.query(
-          'SELECT id FROM restaurants WHERE slug = $1',
-          [slug],
-        )
+        await database.pool.query('SELECT id FROM restaurants WHERE id = $1', [
+          id,
+        ])
       ).rowCount,
     ).toBe(1);
     expect(

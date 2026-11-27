@@ -1,11 +1,12 @@
 import pg from 'pg';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app.js';
-import { openApiDocument } from '../../src/presentation/http/openapi.js';
+import { mountedOpenApiDocument } from '../../src/presentation/http/combined-openapi.js';
 
 type Schema = Record<string, unknown>;
 type Operation = {
   operationId: string;
+  'x-websocket'?: unknown;
   security: unknown[];
   parameters: { name: string; in: string; required?: boolean }[];
   requestBody?: {
@@ -13,12 +14,13 @@ type Operation = {
   };
   responses: Record<string, unknown>;
 };
-const paths = openApiDocument.paths as Record<
+const paths = mountedOpenApiDocument.paths as Record<
   string,
   Record<string, Operation>
 >;
 const schemas = () =>
-  (openApiDocument.components as { schemas: Record<string, Schema> }).schemas;
+  (mountedOpenApiDocument.components as { schemas: Record<string, Schema> })
+    .schemas;
 
 describe('OPS-001 AC-005 OpenAPI executable contract', () => {
   it('documents exactly the mounted HTTP operations', () => {
@@ -49,7 +51,9 @@ describe('OPS-001 AC-005 OpenAPI executable contract', () => {
     ].sort();
     const documented = Object.entries(paths)
       .flatMap(([path, methods]) =>
-        Object.keys(methods).map((method) => `${method} ${path}`),
+        Object.entries(methods)
+          .filter(([, operation]) => !operation['x-websocket'])
+          .map(([method]) => `${method} ${path}`),
       )
       .sort();
     expect(documented).toEqual(actual);
@@ -60,9 +64,18 @@ describe('OPS-001 AC-005 OpenAPI executable contract', () => {
       for (const [method, operation] of Object.entries(methods)) {
         const isPublic =
           ['/health', '/ready', '/openapi.json'].includes(path) ||
-          (path === '/api/v1/public/programs/{code}' && method === 'get');
-        expect(operation.security, `${method} ${path}`).toEqual(
-          isPublic ? [] : [{ bearerAuth: [] }],
+          (path === '/api/v1/public/programs/{code}' && method === 'get') ||
+          (path === '/api/v1/customer/session' && method === 'post');
+        const customer = path.startsWith('/api/v1/customer/');
+        const security = (
+          operation.security as { [key: string]: unknown }[]
+        ).map((entry) => Object.keys(entry)[0]);
+        expect(security, `${method} ${path}`).toEqual(
+          isPublic
+            ? []
+            : customer
+              ? ['customerSession']
+              : expect.arrayContaining(['bearerAuth']),
         );
       }
   });
@@ -81,6 +94,17 @@ describe('OPS-001 AC-005 OpenAPI executable contract', () => {
             '/api/v1/profiles',
             '/api/v1/me',
             '/api/v1/restaurants/{id}/cards/resolve',
+            '/api/v1/customer/session',
+            '/api/v1/customer/enrollments',
+            '/api/v1/invitations/accept',
+            '/api/v1/restaurants/{restaurantId}/invitations',
+            '/api/v1/restaurants/{restaurantId}/invitations/{targetId}/revoke',
+            '/api/v1/restaurants/{restaurantId}/employees/{targetId}',
+            '/api/v1/invitations/accept',
+            '/api/v1/customer/session',
+            '/api/v1/customer/enrollments',
+            '/api/v1/operator/scans',
+            '/api/v1/operator/rewards/{rewardId}/resend',
           ].includes(path)
         )
           expect(operation.parameters).toContainEqual(
@@ -111,14 +135,14 @@ describe('OPS-001 AC-005 OpenAPI executable contract', () => {
       for (const [name, entry] of Object.entries(value)) {
         if (name === '$ref') {
           const parts = String(entry).split('/').slice(1);
-          let target: unknown = openApiDocument;
+          let target: unknown = mountedOpenApiDocument;
           for (const part of parts)
             target = (target as Record<string, unknown>)?.[part];
           expect(target, entry as string).toBeDefined();
         } else check(entry);
       }
     };
-    check(openApiDocument);
+    check(mountedOpenApiDocument);
   });
   it('specifies purchase reference, explicit consent, positive target and stable error envelope', () => {
     const all = schemas();
