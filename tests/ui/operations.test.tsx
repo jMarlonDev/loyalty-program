@@ -218,4 +218,45 @@ describe('operación autorizada por el servidor', () => {
     expect(await screen.findByText(/código válido/i)).toBeVisible();
     expect(state.call).not.toHaveBeenCalled();
   });
+
+  it('permite elegir sucursal y la envía en la compra', async () => {
+    localStorage.setItem('loyalty:last-location', 'l2');
+    state.scan = scanResult({
+      locations: [
+        { id: 'l1', name: 'Centro' },
+        { id: 'l2', name: 'Norte' },
+      ],
+    });
+    render(
+      <OperationsPanel restaurantId={restaurantId} initialToken={token} />,
+    );
+    const select = await screen.findByLabelText('Sucursal');
+    expect(select).toHaveValue('l2');
+    fireEvent.change(select, { target: { value: 'l1' } });
+    expect(localStorage.getItem('loyalty:last-location')).toBe('l1');
+    fireEvent.change(screen.getByLabelText('Referencia única de venta'), {
+      target: { value: 'FACT-1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Registrar compra/ }));
+    await waitFor(() =>
+      expect(state.call).toHaveBeenCalledWith({
+        path: '/operator/purchases',
+        body: {
+          restaurant_id: restaurantId,
+          token,
+          sale_reference: 'FACT-1',
+          location_id: 'l1',
+        },
+      }),
+    );
+  });
+
+  it('muestra como texto la única sucursal', async () => {
+    state.scan = scanResult({ locations: [{ id: 'l1', name: 'Centro' }] });
+    render(
+      <OperationsPanel restaurantId={restaurantId} initialToken={token} />,
+    );
+    expect(await screen.findByText('Sucursal: Centro')).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Sucursal' })).toBeNull();
+  });
 });

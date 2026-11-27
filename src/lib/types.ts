@@ -131,6 +131,44 @@ export interface ScanResult {
   phone_masked: string;
   reward: ScanReward | null;
   allowed_actions: Array<'purchase' | 'redeem'>;
+  locations?: Array<{ id: string; name: string }>;
+}
+export interface Branch {
+  id: string;
+  name: string;
+  address: string | null;
+  physical_point: string | null;
+  status: string;
+  employees: number;
+}
+export interface StaffMember {
+  id: string;
+  user_id: string;
+  full_name: string;
+  email: string;
+  status: string;
+  must_change_password: boolean;
+  can_transfer_cards: boolean;
+  locations: Array<{ id: string; name: string }>;
+}
+export interface BranchInvitation {
+  id: string;
+  location_id: string;
+  location_name: string;
+  expires_at: string;
+  max_uses: number;
+  uses: number;
+  state: 'valid' | 'expired' | 'revoked' | 'exhausted';
+}
+export interface BranchInvitationIssued {
+  id: string;
+  token: string;
+  url: string;
+  expires_at: string;
+  max_uses: number;
+  uses: number;
+  state: BranchInvitation['state'];
+  location_name: string;
 }
 export interface OperatorInvitation {
   id: string;

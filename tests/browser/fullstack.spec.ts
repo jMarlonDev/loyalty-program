@@ -257,7 +257,7 @@ test('dueño, empleado y cliente completan compra, premio y nuevo ciclo sin reca
   expect(program.stamps_required).toBe(2);
   expect(programUrl).toBe(`${origin}/join/${program.public_code}`);
 
-  await page.getByRole('button', { name: 'Equipo', exact: true }).click();
+  await page.getByRole('button', { name: 'Empleados', exact: true }).click();
   await page.getByLabel('Correo', { exact: true }).fill(employeeEmail);
   await page.getByLabel('País', { exact: true }).selectOption('CO');
   await page.getByLabel('Teléfono', { exact: true }).fill('3001234567');

@@ -90,7 +90,7 @@ describe('permisos de presentación', () => {
     ).not.toBeInTheDocument();
     expect(state.calls).not.toContain('/restaurants/restaurant/programs');
     expect(
-      screen.queryByRole('button', { name: 'Equipo' }),
+      screen.queryByRole('button', { name: 'Empleados' }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Nuevo restaurante' }),
@@ -143,10 +143,14 @@ describe('permisos de presentación', () => {
   it('ROLE-001 el dueño administra su programa, equipo y restaurantes', () => {
     state.role = 'admin';
     render(<WorkspacePage />);
-    for (const name of ['Mi programa', 'Equipo', 'Nuevo restaurante']) {
+    for (const name of [
+      'Mi programa',
+      'Sucursales',
+      'Empleados',
+      'Nuevo restaurante',
+    ]) {
       expect(screen.getByRole('button', { name })).toBeVisible();
     }
-    expect(screen.queryByRole('button', { name: 'Sucursales' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Ajustes' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Nuevo restaurante' }));
     expect(
@@ -175,8 +179,8 @@ describe('permisos de presentación', () => {
     expect(
       screen.getByRole('heading', { name: 'Tarjetas de lealtad' }),
     ).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Equipo' })).toBeVisible();
-    expect(screen.queryByText(/Administrador|Empleado/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Empleados' })).toBeVisible();
+    expect(screen.queryByText(/Administrador|Empleado$/)).toBeNull();
   });
   it('BR-018 bloquea condiciones inscritas y permite cambiar diseño', () => {
     render(
