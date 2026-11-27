@@ -27,7 +27,7 @@ describe('IDENTITY-001 HTTP real y PostgreSQL aislado', () => {
             throw new AppError(401, 'UNAUTHENTICATED', 'Sesión inválida.');
           return {
             id: subject,
-            email: 'client@example.test',
+            email: `client-${subject}@example.test`,
             emailVerified: token !== 'unverified',
           };
         },

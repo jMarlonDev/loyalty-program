@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { Pool } from 'pg';
 import { users } from '../../db/schema.js';
+import { AppError } from '../application/errors.js';
 import type { ProfileRepository } from '../application/identity.js';
 import type { Profile, ProfilePatch } from '../domain/identity.js';
 
@@ -18,7 +19,7 @@ const profileColumns = {
 function profileOf(
   row:
     | typeof users.$inferSelect
-    | Omit<typeof users.$inferSelect, 'password_hash'>,
+    | Omit<typeof users.$inferSelect, 'password_hash' | 'must_change_password'>,
 ): Profile {
   return {
     id: row.id,
@@ -42,7 +43,7 @@ export class PgProfileRepository implements ProfileRepository {
       const [inserted] = await tx
         .insert(users)
         .values({ ...profile, password_hash: null })
-        .onConflictDoNothing({ target: users.id })
+        .onConflictDoNothing()
         .returning(profileColumns);
       if (inserted) return { profile: profileOf(inserted), created: true };
       const [existing] = await tx
@@ -50,8 +51,13 @@ export class PgProfileRepository implements ProfileRepository {
         .from(users)
         .where(eq(users.id, profile.id))
         .for('update');
+      // Sin fila con ese id, el conflicto fue el índice único de correo.
       if (!existing)
-        throw new Error('Profile disappeared during registration.');
+        throw new AppError(
+          409,
+          'EMAIL_TAKEN',
+          'Ya existe una cuenta con ese correo.',
+        );
       return { profile: profileOf(existing), created: false };
     });
   }

@@ -3,7 +3,14 @@ import { readAppOrigin } from './config';
 export function publicConfig(env: NodeJS.ProcessEnv): Response {
   try {
     return Response.json(
-      { data: { appOrigin: readAppOrigin(env) } },
+      {
+        data: {
+          appOrigin: readAppOrigin(env),
+          // AUTH-LOCAL-001: la UI oculta Google y la recuperación por correo.
+          authProvider:
+            env.AUTH_PROVIDER?.trim() === 'supabase' ? 'supabase' : 'local',
+        },
+      },
       {
         headers: { 'Cache-Control': 'no-store' },
       },

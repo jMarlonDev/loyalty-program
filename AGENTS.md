@@ -408,3 +408,23 @@ A solicitud del usuario se detuvo mediante SIGTERM la instancia Vite de este pro
 - Verificación de la sesión: `npm run check` correcto (225 UI/servidor, 10 tooling, 256 unit backend); `npm run test:db -- --sequence.shuffle --sequence.seed=20261019` correcto (517/517, 37 archivos, PostgreSQL 17 temporal); `npm run build`, `npm run db:check` y `npm run generate` (sin cambios) correctos. La espera del contenedor de pruebas se amplió por lentitud del host.
 - Pruebas adaptadas sin eliminar regresiones: `next-flow` cubre ciclo separado, saldo remanente y dueño sin vínculo; `http-access` exige Origin; la UI tolera `cycle` nulo. No se ejecutó navegador, WSS real, WhatsApp real ni migración remota en esta sesión.
 - Próximo paso: P7 (outbox de entrega/reenvío desde la tarjeta) y P9/P10 con conciliación, navegador y preparación de release.
+
+### D-01 inscripción del cliente (NEXT-006) — 2026-11-27
+
+- Implementado en las ramas `feat/d01-backend`, `feat/d01-tests` y `feat/d01-frontend`, apiladas sobre `develop`:
+  - El teléfono crea la tarjeta y no abre tarjetas existentes: con tarjeta activa → 409.
+  - La sesión del dispositivo está ligada a una tarjeta, sin logout.
+  - Cierre con pérdida de sellos y premios, sin borrar filas.
+  - Reinscripción marcada.
+  - Admin de tarjetas con teléfono enmascarado.
+  - Transferencia por QR de un solo uso (10 min).
+  - Límite de 5 altas/hora por IP y dispositivo.
+  - Migración aditiva 0007.
+  - Verificación SMS/WhatsApp preparada y desactivada.
+  - Se retiraron `POST/DELETE /customer/session`.
+- Verificación:
+  - `npm run check` correcto (236 UI/servidor, 10 tooling, 260 unit).
+  - `npm run test:db`: 537/537 con la semilla 20261019 y sin orden aleatorio. Con la semilla 20261127 fallan 3 tests que dependen del orden (`next-flow`, `customer-events-adapters`); no se comprobó si ya fallaban antes de este cambio.
+  - No se ejecutaron navegador ni build.
+- Git: remoto cambiado a SSH. El usuario autorizó el push de `develop`; las ramas `feat/*` se subieron para PR y los merges los hace el usuario. Detalle en `CLAUDE.md`.
+- Pendiente: aislar los tests dependientes del orden, pruebas en navegador y Fase 1 (login local de staff, sucursales/invitaciones, espera de 4 h).

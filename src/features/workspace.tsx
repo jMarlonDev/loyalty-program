@@ -21,6 +21,7 @@ import { useCollection } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { Restaurant } from '../lib/types';
 import { statusLabel } from '../lib/utils';
+import { CardsPanel } from './cards-admin';
 import { CustomerCardsPage } from './customer';
 import { RestaurantForm } from './management';
 import { OperationsPanel } from './operations';
@@ -53,7 +54,12 @@ export function WorkspacePage() {
       ? [{ id: 'programs', label: 'Mi programa', icon: CreditCard }]
       : []),
     { id: 'operations', label: 'Escáner', icon: ScanLine },
-    ...(canManage ? [{ id: 'team', label: 'Equipo', icon: Users }] : []),
+    ...(canManage
+      ? [
+          { id: 'cards', label: 'Tarjetas', icon: CreditCard },
+          { id: 'team', label: 'Equipo', icon: Users },
+        ]
+      : []),
   ];
   const activeTab = canManage ? tab : 'operations';
   const showCreation = canManage && creating;
@@ -232,6 +238,9 @@ export function WorkspacePage() {
                 )}
                 {activeTab === 'operations' && (
                   <OperationsPanel restaurantId={restaurant.id} />
+                )}
+                {activeTab === 'cards' && canManage && (
+                  <CardsPanel restaurantId={restaurant.id} />
                 )}
                 {activeTab === 'team' && canManage && (
                   <TeamPanel restaurantId={restaurant.id} />

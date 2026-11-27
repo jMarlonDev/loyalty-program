@@ -3,6 +3,8 @@ export interface PublicUser {
   id: string;
   email: string;
   full_name?: string;
+  /** AUTH-LOCAL-001: contraseña temporal pendiente de cambio. */
+  must_change_password?: boolean;
 }
 export interface TokenSession {
   access_token: string;

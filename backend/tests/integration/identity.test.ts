@@ -17,7 +17,7 @@ describe('IDENTITY-001 persistencia real', () => {
     profile = {
       id: randomUUID(),
       full_name: 'Client',
-      email: 'client@example.test',
+      email: `client-${randomUUID()}@example.test`,
       phone: '123',
       status: 'active',
       created_at: now,
@@ -82,8 +82,24 @@ describe('IDENTITY-001 persistencia real', () => {
       });
     },
   );
-  it('AC-002 conserva dos sujetos con el mismo correo y no sobrescribe al repetir alta', async () => {
-    const other = { ...profile, id: randomUUID(), full_name: 'Other' };
+  it('AC-002 rechaza un segundo sujeto con el mismo correo (AUTH-LOCAL-001) sin tocar al primero', async () => {
+    await profiles.createIfAbsent(profile);
+    await expect(
+      profiles.createIfAbsent({
+        ...profile,
+        id: randomUUID(),
+        email: profile.email?.toUpperCase() ?? null,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'EMAIL_TAKEN' });
+    expect(await profiles.findById(profile.id)).toEqual(profile);
+  });
+  it('AC-002 conserva dos sujetos con correos distintos y no sobrescribe al repetir alta', async () => {
+    const other = {
+      ...profile,
+      id: randomUUID(),
+      email: `other-${randomUUID()}@example.test`,
+      full_name: 'Other',
+    };
     await Promise.all([
       profiles.createIfAbsent(profile),
       profiles.createIfAbsent(other),

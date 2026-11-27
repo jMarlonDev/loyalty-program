@@ -209,6 +209,7 @@ export function useCustomerSession() {
             data: {
               authenticated: true;
               phone_masked: string;
+              card_id?: string | null;
               expires_at: string;
             };
           }>('/customer/session')

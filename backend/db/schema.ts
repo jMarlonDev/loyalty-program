@@ -74,11 +74,18 @@ export const users = pgTable(
     email: varchar('email', { length: 255 }),
     phone: varchar('phone', { length: 20 }),
     password_hash: text('password_hash'),
+    // AUTH-LOCAL-001: contraseña temporal creada por el admin.
+    must_change_password: boolean('must_change_password')
+      .notNull()
+      .default(false),
     status: varchar('status', { length: 20 }).notNull(),
     created_at: timestamp('created_at', { withTimezone: true }).notNull(),
     updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
-  () => [
+  (table) => [
+    uniqueIndex('users_email_lower_unique')
+      .on(sql`lower(${table.email})`)
+      .where(sql`${table.email} IS NOT NULL`),
     check(
       'users_status_check',
       sql`status IN ('active', 'suspended', 'closed')`,
@@ -944,6 +951,42 @@ export const enrollment_attempts = pgTable(
       table.key_hash,
       table.created_at,
     ),
-    check('enrollment_attempts_scope_check', sql`scope IN ('ip', 'device')`),
+    check(
+      'enrollment_attempts_scope_check',
+      sql`scope IN ('ip', 'device', 'login')`,
+    ),
+  ],
+).enableRLS();
+
+// AUTH-LOCAL-001: sesiones de admin/empleado con tokens opacos (solo hash).
+export const staff_sessions = pgTable(
+  'staff_sessions',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    user_id: uuid('user_id').notNull(),
+    access_hash: text('access_hash').notNull(),
+    access_expires_at: timestamp('access_expires_at', {
+      withTimezone: true,
+    }).notNull(),
+    refresh_hash: text('refresh_hash').notNull(),
+    refresh_expires_at: timestamp('refresh_expires_at', {
+      withTimezone: true,
+    }).notNull(),
+    revoked_at: timestamp('revoked_at', { withTimezone: true }),
+    user_agent: varchar('user_agent', { length: 255 }),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+    last_seen_at: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    unique('staff_sessions_access_hash_unique').on(table.access_hash),
+    unique('staff_sessions_refresh_hash_unique').on(table.refresh_hash),
+    index('staff_sessions_user_idx').on(table.user_id),
+    foreignKey({
+      name: 'fk_staff_sessions_user',
+      columns: [table.user_id],
+      foreignColumns: [users.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
   ],
 ).enableRLS();

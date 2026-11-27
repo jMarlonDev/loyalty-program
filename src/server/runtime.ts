@@ -2,10 +2,12 @@ import { config as loadDotEnv } from 'dotenv';
 import { Pool } from 'pg';
 import { createApp } from '../../backend/src/app';
 import { SupabaseIdentityProvider } from '../../backend/src/infrastructure/identity-provider';
+import { LocalAuthStore } from '../../backend/src/infrastructure/local-auth';
 import { PgNextRepository } from '../../backend/src/infrastructure/next-repository';
 import { createBaseApp } from '../../backend/src/presentation/http/base-app';
 import { createApiBridge } from './bridge';
 import { loadRuntimeConfig } from './config';
+import { createLocalSessionAuth } from './local-session-auth';
 import { publicConfig } from './public-config';
 import { createRealtime } from './realtime';
 import { createSessionHandler, safeNext } from './session';
@@ -45,12 +47,17 @@ function createRuntime() {
     tokenEncryptionKey: settings.cardTokenEncryptionKey,
     development,
   });
+  // AUTH-LOCAL-001 (D-07): cuentas locales por defecto; Supabase Auth opcional.
+  const localAuth =
+    settings.authProvider === 'local' ? new LocalAuthStore(pool) : undefined;
   const app = createApp({
     pool,
-    identityProvider: new SupabaseIdentityProvider({
-      url: settings.supabaseUrl,
-      apiKey: settings.supabasePublishableKey,
-    }),
+    identityProvider:
+      localAuth ??
+      new SupabaseIdentityProvider({
+        url: settings.supabaseUrl,
+        apiKey: settings.supabasePublishableKey,
+      }),
     cardTokenEncryptionKey: settings.cardTokenEncryptionKey,
     corsOrigins: settings.corsOrigins,
     publicOrigin: settings.origin,
@@ -62,10 +69,12 @@ function createRuntime() {
     development,
   });
   const session = createSessionHandler({
-    auth: createSupabaseAuth({
-      url: settings.supabaseUrl,
-      apiKey: settings.supabasePublishableKey,
-    }),
+    auth: localAuth
+      ? createLocalSessionAuth(localAuth)
+      : createSupabaseAuth({
+          url: settings.supabaseUrl,
+          apiKey: settings.supabasePublishableKey,
+        }),
     origin: settings.origin,
   });
   return {
