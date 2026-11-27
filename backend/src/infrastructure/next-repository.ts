@@ -2,12 +2,20 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { AppError } from '../application/errors.js';
 import type { CardView, CustomerPrincipal } from '../application/next.js';
-import { maskPhone, normalizePhone } from '../application/next.js';
+import {
+  maskPhone,
+  maskPhoneGrouped,
+  normalizePhone,
+} from '../application/next.js';
 import { createTokenCodec } from './token-codec.js';
 import { idempotent, withTransaction } from './transactions.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const SESSION_DAYS = 400;
+const HOUR = 60 * 60 * 1000;
+/** NEXT-006: intentos de inscripción por IP y por dispositivo en una hora. */
+export const ENROLL_ATTEMPTS_PER_HOUR = 5;
+const TRANSFER_MINUTES = 10;
 const notFound = () => new AppError(404, 'NOT_FOUND', 'No existe el recurso.');
 const conflict = (message: string, code = 'CONFLICT') =>
   new AppError(409, code, message);
@@ -222,7 +230,7 @@ export class PgNextRepository {
   ): Promise<CycleRow> {
     const current = await this.latestCycle(client, card.membership_id, true);
     if (current?.state === 'collecting') return current;
-    let number = (current?.number ?? 0) + 1;
+    const number = (current?.number ?? 0) + 1;
     let stamps = 0;
     let state: CycleRow['state'] = 'collecting';
     let existingReward: { id: string } | undefined;
@@ -493,6 +501,7 @@ export class PgNextRepository {
         token,
         principal: {
           session_id: sessionId,
+          card_id: null,
           customer_id: customer.id,
           user_id: customer.id,
           phone,
@@ -528,11 +537,12 @@ export class PgNextRepository {
   async authenticate(token: string): Promise<CustomerPrincipal> {
     const result = await this.pool.query<{
       session_id: string;
+      card_id: string | null;
       customer_id: string;
       phone: string;
       expires_at: Date;
     }>(
-      `SELECT s.id AS session_id,s.customer_id,s.expires_at,u.phone
+      `SELECT s.id AS session_id,s.card_id,s.customer_id,s.expires_at,u.phone
        FROM customer_sessions s JOIN customers c ON c.id=s.customer_id
        JOIN users u ON u.id=c.id
        WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>$2
@@ -548,6 +558,7 @@ export class PgNextRepository {
     );
     return {
       session_id: row.session_id,
+      card_id: row.card_id,
       customer_id: row.customer_id,
       user_id: row.customer_id,
       phone: row.phone,
@@ -593,34 +604,13 @@ export class PgNextRepository {
         )
       ).rows[0];
       if (!membership) {
-        const membershipId = randomUUID();
-        const cardToken = this.codec.generate();
-        await client.query(
-          `INSERT INTO memberships(id,user_id,program_id,status,joined_at)
-           VALUES($1,$2,$3,'active',$4)`,
-          [membershipId, principal.user_id, program.id, this.now()],
+        const created = await this.createMembership(
+          client,
+          principal.user_id,
+          program,
+          0,
         );
-        await client.query(
-          `INSERT INTO loyalty_cards(id,membership_id,qr_token_hash,qr_token_encrypted,status,created_at,version)
-           VALUES($1,$2,$3,$4,'active',$5,0)`,
-          [
-            randomUUID(),
-            membershipId,
-            this.codec.hash(cardToken),
-            this.codec.encrypt(cardToken),
-            this.now(),
-          ],
-        );
-        await client.query(
-          'UPDATE loyalty_programs SET terms_locked=true,updated_at=$2 WHERE id=$1',
-          [program.id, this.now()],
-        );
-        await client.query(
-          `INSERT INTO loyalty_cycles(id,membership_id,number,state,stamps,target,opened_at)
-           VALUES($1,$2,1,'collecting',0,$3,$4)`,
-          [randomUUID(), membershipId, program.stamps_required, this.now()],
-        );
-        membership = { id: membershipId };
+        membership = { id: created.membershipId };
       }
       const card = (
         await client.query<{ id: string }>(
@@ -633,13 +623,671 @@ export class PgNextRepository {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // NEXT-006: inscripción por teléfono, tarjeta por dispositivo, cierre y
+  // transferencia. El teléfono es la credencial de alta, nunca la de acceso:
+  // un número con tarjeta activa se rechaza sin revelar sus datos.
+  // ---------------------------------------------------------------------------
+
+  private owns(principal: CustomerPrincipal, card: CardRow): boolean {
+    if (card.customer_id !== principal.user_id) return false;
+    return principal.card_id === null || principal.card_id === card.id;
+  }
+
+  private async audit(
+    client: PoolClient | Pool,
+    input: {
+      actor: string;
+      restaurant: string | null;
+      action: string;
+      resource: string;
+      details: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO audit_events(id,actor_id,restaurant_id,action,resource_id,request_id,details,created_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        randomUUID(),
+        input.actor,
+        input.restaurant,
+        input.action,
+        input.resource,
+        randomUUID(),
+        JSON.stringify(input.details),
+        this.now(),
+      ],
+    );
+  }
+
+  /** Registra el intento y rechaza si la IP o el dispositivo superan el límite horario. */
+  async limitEnrollment(keys: {
+    ip?: string | undefined;
+    device?: string | undefined;
+  }): Promise<void> {
+    const now = this.now();
+    const since = new Date(now.getTime() - HOUR);
+    for (const [scope, key] of [
+      ['ip', keys.ip],
+      ['device', keys.device],
+    ] as const) {
+      if (!key) continue;
+      const keyHash = hash(`${scope}:${key}`);
+      await this.pool.query(
+        'DELETE FROM enrollment_attempts WHERE scope=$1 AND key_hash=$2 AND created_at<=$3',
+        [scope, keyHash, since],
+      );
+      await this.pool.query(
+        'INSERT INTO enrollment_attempts(id,scope,key_hash,created_at) VALUES($1,$2,$3,$4)',
+        [randomUUID(), scope, keyHash, now],
+      );
+      const count =
+        (
+          await this.pool.query<{ n: number }>(
+            'SELECT count(*)::int AS n FROM enrollment_attempts WHERE scope=$1 AND key_hash=$2 AND created_at>$3',
+            [scope, keyHash, since],
+          )
+        ).rows[0]?.n ?? 0;
+      if (count > ENROLL_ATTEMPTS_PER_HOUR)
+        throw new AppError(
+          429,
+          'RATE_LIMITED',
+          'Demasiados intentos. Vuelve a intentarlo más tarde.',
+        );
+    }
+  }
+
+  private async activeProgram(client: PoolClient, publicCode: string) {
+    const program = (
+      await client.query<{
+        id: string;
+        restaurant_id: string;
+        status: string;
+        stamps_required: number;
+      }>(
+        `SELECT p.id,p.restaurant_id,p.status,p.stamps_required
+         FROM loyalty_programs p JOIN restaurants r ON r.id=p.restaurant_id
+         WHERE p.public_code=$1 AND r.status='active'`,
+        [publicCode],
+      )
+    ).rows[0];
+    if (!program) throw notFound();
+    if (program.status !== 'active')
+      throw conflict('El programa no admite nuevas inscripciones.');
+    return program;
+  }
+
+  private async createMembership(
+    client: PoolClient,
+    customerId: string,
+    program: { id: string; stamps_required: number },
+    previousCards: number,
+  ): Promise<{ membershipId: string; cardId: string }> {
+    const membershipId = randomUUID();
+    const cardId = randomUUID();
+    const cardToken = this.codec.generate();
+    const now = this.now();
+    await client.query(
+      `INSERT INTO memberships(id,user_id,program_id,status,joined_at,is_reenrollment,previous_cards_count)
+       VALUES($1,$2,$3,'active',$4,$5,$6)`,
+      [
+        membershipId,
+        customerId,
+        program.id,
+        now,
+        previousCards > 0,
+        previousCards,
+      ],
+    );
+    await client.query(
+      `INSERT INTO loyalty_cards(id,membership_id,qr_token_hash,qr_token_encrypted,status,created_at,version)
+       VALUES($1,$2,$3,$4,'active',$5,0)`,
+      [
+        cardId,
+        membershipId,
+        this.codec.hash(cardToken),
+        this.codec.encrypt(cardToken),
+        now,
+      ],
+    );
+    await client.query(
+      'UPDATE loyalty_programs SET terms_locked=true,updated_at=$2 WHERE id=$1',
+      [program.id, now],
+    );
+    await client.query(
+      `INSERT INTO loyalty_cycles(id,membership_id,number,state,stamps,target,opened_at)
+       VALUES($1,$2,1,'collecting',0,$3,$4)`,
+      [randomUUID(), membershipId, program.stamps_required, now],
+    );
+    return { membershipId, cardId };
+  }
+
+  private async deviceSession(
+    client: PoolClient,
+    customerId: string,
+    cardId: string,
+    userAgent?: string | undefined,
+  ): Promise<{ token: string; expires_at: string }> {
+    const token = this.codec.generate();
+    const now = this.now();
+    const expires = new Date(now.getTime() + SESSION_DAYS * DAY);
+    await client.query(
+      `INSERT INTO customer_sessions(id,customer_id,token_hash,expires_at,last_seen_at,created_at,card_id,user_agent)
+       VALUES($1,$2,$3,$4,$5,$5,$6,$7)`,
+      [
+        randomUUID(),
+        customerId,
+        hash(token),
+        expires,
+        now,
+        cardId,
+        userAgent ? userAgent.slice(0, 255) : null,
+      ],
+    );
+    return { token, expires_at: expires.toISOString() };
+  }
+
+  /**
+   * Alta de un dispositivo sin sesión. Crea la tarjeta y una sesión ligada a
+   * ella. Un número con tarjeta activa en el programa se rechaza (409) sin
+   * crear sesión ni devolver datos de esa tarjeta.
+   */
+  async enrollByPhone(input: {
+    publicCode: string;
+    phone: unknown;
+    country: unknown;
+    userAgent?: string | undefined;
+  }): Promise<{
+    token: string;
+    expires_at: string;
+    reenrollment: boolean;
+    card: CardView;
+  }> {
+    const phone = normalizePhone(input.phone, input.country);
+    const country = String(input.country).toUpperCase();
+    const outcome = await withTransaction(this.pool, async (client) => {
+      const program = await this.activeProgram(client, input.publicCode);
+      await client.query(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1,0))',
+        [`customer:${phone}`],
+      );
+      let customer = (
+        await client.query<{ id: string; status: string }>(
+          'SELECT id,status FROM customers WHERE phone=$1',
+          [phone],
+        )
+      ).rows[0];
+      if (customer && customer.status !== 'active') throw forbidden();
+      if (customer) {
+        const active = (
+          await client.query<{ id: string }>(
+            "SELECT id FROM memberships WHERE user_id=$1 AND program_id=$2 AND status<>'closed'",
+            [customer.id, program.id],
+          )
+        ).rows[0];
+        if (active) {
+          await this.audit(client, {
+            actor: customer.id,
+            restaurant: program.restaurant_id,
+            action: 'ENROLL_REJECTED_ACTIVE',
+            resource: active.id,
+            details: { program_id: program.id, phone: maskPhone(phone) },
+          });
+          return { rejected: true as const };
+        }
+      }
+      const now = this.now();
+      if (!customer) {
+        const id = randomUUID();
+        await client.query(
+          `INSERT INTO users(id,full_name,phone,status,created_at,updated_at)
+           VALUES($1,'Cliente',$2,'active',$3,$3)`,
+          [id, phone, now],
+        );
+        await client.query(
+          `INSERT INTO customers(id,phone,country,status,created_at,updated_at)
+           VALUES($1,$2,$3,'active',$4,$4)`,
+          [id, phone, country, now],
+        );
+        customer = { id, status: 'active' };
+      }
+      const previous =
+        (
+          await client.query<{ n: number }>(
+            "SELECT count(*)::int AS n FROM memberships WHERE user_id=$1 AND program_id=$2 AND status='closed'",
+            [customer.id, program.id],
+          )
+        ).rows[0]?.n ?? 0;
+      const created = await this.createMembership(
+        client,
+        customer.id,
+        program,
+        previous,
+      );
+      const session = await this.deviceSession(
+        client,
+        customer.id,
+        created.cardId,
+        input.userAgent,
+      );
+      await this.audit(client, {
+        actor: customer.id,
+        restaurant: program.restaurant_id,
+        action: previous > 0 ? 'CARD_REENROLLED' : 'CARD_CREATED',
+        resource: created.membershipId,
+        details: {
+          program_id: program.id,
+          card_id: created.cardId,
+          previous_cards_count: previous,
+          phone: maskPhone(phone),
+        },
+      });
+      return {
+        rejected: false as const,
+        ...session,
+        reenrollment: previous > 0,
+        card: await this.view(client, await this.card(client, created.cardId)),
+      };
+    });
+    if (outcome.rejected)
+      throw new AppError(
+        409,
+        'CARD_ALREADY_ACTIVE',
+        'Este número ya tiene una tarjeta activa.',
+      );
+    const { rejected: _rejected, ...result } = outcome;
+    return result;
+  }
+
+  /** Dispositivo con sesión: muestra su tarjeta y nunca crea otra. */
+  async deviceCard(
+    principal: CustomerPrincipal,
+    publicCode: string,
+  ): Promise<{ card: CardView; same_program: boolean }> {
+    if (principal.card_id === null) {
+      // Sesión heredada (NEXT-001): se liga a la tarjeta de este programa.
+      const card = await this.enroll(principal, publicCode);
+      await this.pool.query(
+        'UPDATE customer_sessions SET card_id=$2 WHERE id=$1 AND card_id IS NULL',
+        [principal.session_id, card.id],
+      );
+      return { card, same_program: true };
+    }
+    const card = await this.getCard(principal, principal.card_id);
+    return { card, same_program: card.program.public_code === publicCode };
+  }
+
+  /** «Salir del programa»: cierra la tarjeta, pierde sellos/premios y revoca la sesión. */
+  async closeCard(
+    principal: CustomerPrincipal,
+    cardId: string,
+  ): Promise<{ stamps_lost: number; rewards_lost: number }> {
+    return withTransaction(this.pool, async (client) => {
+      await client.query(
+        'SELECT id FROM loyalty_cards WHERE id=$1 FOR UPDATE',
+        [cardId],
+      );
+      const card = await this.card(client, cardId);
+      if (!this.owns(principal, card)) throw notFound();
+      if (card.membership_status === 'closed' || card.card_status === 'closed')
+        throw conflict('La tarjeta ya está cerrada.');
+      const cycle = await this.latestCycle(client, card.membership_id);
+      const stampsLost =
+        cycle && cycle.state === 'collecting' ? cycle.stamps : 0;
+      const pending = (
+        await client.query<{ id: string }>(
+          "SELECT id FROM rewards WHERE membership_id=$1 AND status='available'",
+          [card.membership_id],
+        )
+      ).rows.map((row) => row.id);
+      const now = this.now();
+      await client.query(
+        "UPDATE memberships SET status='closed',closed_at=$2,close_reason='customer_exit' WHERE id=$1",
+        [card.membership_id, now],
+      );
+      await client.query(
+        "UPDATE loyalty_cards SET status='closed' WHERE id=$1",
+        [card.id],
+      );
+      if (pending.length) {
+        await client.query(
+          "UPDATE rewards SET status='cancelled' WHERE id = ANY($1::uuid[])",
+          [pending],
+        );
+        await client.query(
+          "UPDATE reward_vouchers SET status='revoked' WHERE reward_id = ANY($1::uuid[]) AND status='active'",
+          [pending],
+        );
+      }
+      await client.query(
+        'UPDATE customer_sessions SET revoked_at=$3 WHERE (card_id=$1 OR id=$2) AND revoked_at IS NULL',
+        [card.id, principal.session_id, now],
+      );
+      await client.query(
+        'UPDATE card_transfers SET expires_at=$2 WHERE card_id=$1 AND consumed_at IS NULL AND expires_at>$2',
+        [card.id, now],
+      );
+      await this.addEvent(client, card, 'card.changed');
+      await this.audit(client, {
+        actor: card.customer_id,
+        restaurant: card.restaurant_id,
+        action: 'CARD_CLOSED',
+        resource: card.membership_id,
+        details: {
+          card_id: card.id,
+          stamps_lost: stampsLost,
+          rewards_lost: pending.length,
+          reward_ids: pending,
+        },
+      });
+      return { stamps_lost: stampsLost, rewards_lost: pending.length };
+    });
+  }
+
+  /** Dueño o empleado con permiso explícito de transferencia en ese restaurante. */
+  private async transferAgent(
+    client: PoolClient,
+    userId: string,
+    restaurantId: string,
+  ): Promise<void> {
+    try {
+      await this.owner(client, userId, restaurantId);
+      return;
+    } catch (error) {
+      if (!(error instanceof AppError) || error.status !== 403) throw error;
+    }
+    const allowed = (
+      await client.query(
+        "SELECT 1 FROM restaurant_employees WHERE user_id=$1 AND restaurant_id=$2 AND status='active' AND can_transfer_cards",
+        [userId, restaurantId],
+      )
+    ).rowCount;
+    if (!allowed) throw forbidden();
+  }
+
+  /** Emite un QR de un solo uso (10 min) para mover la tarjeta a otro dispositivo. */
+  async createTransfer(
+    userId: string,
+    restaurantId: string,
+    cardId: string,
+  ): Promise<{ token: string; url: string; expires_at: string }> {
+    return withTransaction(this.pool, async (client) => {
+      await this.transferAgent(client, userId, restaurantId);
+      const card = await this.card(client, cardId, restaurantId);
+      await this.activeCard(card);
+      const now = this.now();
+      await client.query(
+        'UPDATE card_transfers SET expires_at=$2 WHERE card_id=$1 AND consumed_at IS NULL AND expires_at>$2',
+        [card.id, now],
+      );
+      const token = this.codec.generate();
+      const expires = new Date(now.getTime() + TRANSFER_MINUTES * 60 * 1000);
+      const id = randomUUID();
+      await client.query(
+        `INSERT INTO card_transfers(id,card_id,token_hash,created_by,expires_at,created_at)
+         VALUES($1,$2,$3,$4,$5,$6)`,
+        [id, card.id, hash(token), userId, expires, now],
+      );
+      await this.audit(client, {
+        actor: userId,
+        restaurant: restaurantId,
+        action: 'CARD_TRANSFER_ISSUED',
+        resource: card.membership_id,
+        details: { card_id: card.id, transfer_id: id },
+      });
+      return {
+        token,
+        url: `${this.origin}/transfer#${token}`,
+        expires_at: expires.toISOString(),
+      };
+    });
+  }
+
+  /** Consume el QR de transferencia: revoca dispositivos anteriores y abre sesión aquí. */
+  async claimTransfer(input: {
+    token: string;
+    currentSessionId?: string | undefined;
+    userAgent?: string | undefined;
+  }): Promise<{ token: string; expires_at: string; card: CardView }> {
+    return withTransaction(this.pool, async (client) => {
+      const transfer = (
+        await client.query<{
+          id: string;
+          card_id: string;
+          created_by: string;
+          expires_at: Date;
+          consumed_at: Date | null;
+        }>(
+          'SELECT id,card_id,created_by,expires_at,consumed_at FROM card_transfers WHERE token_hash=$1 FOR UPDATE',
+          [hash(input.token)],
+        )
+      ).rows[0];
+      const now = this.now();
+      if (!transfer || transfer.consumed_at || transfer.expires_at <= now)
+        throw new AppError(
+          409,
+          'TRANSFER_INVALID',
+          'El código de transferencia no es válido o venció.',
+        );
+      const card = await this.card(client, transfer.card_id);
+      await this.activeCard(card);
+      await client.query(
+        'UPDATE card_transfers SET consumed_at=$2 WHERE id=$1',
+        [transfer.id, now],
+      );
+      const revoked = await client.query(
+        `UPDATE customer_sessions SET revoked_at=$4
+         WHERE revoked_at IS NULL
+           AND (card_id=$1 OR (card_id IS NULL AND customer_id=$2) OR id=$3::uuid)`,
+        [card.id, card.customer_id, input.currentSessionId ?? null, now],
+      );
+      const session = await this.deviceSession(
+        client,
+        card.customer_id,
+        card.id,
+        input.userAgent,
+      );
+      await this.audit(client, {
+        actor: transfer.created_by,
+        restaurant: card.restaurant_id,
+        action: 'CARD_TRANSFERRED',
+        resource: card.membership_id,
+        details: {
+          card_id: card.id,
+          transfer_id: transfer.id,
+          sessions_revoked: revoked.rowCount ?? 0,
+        },
+      });
+      return { ...session, card: await this.view(client, card) };
+    });
+  }
+
+  /** Lista de tarjetas para el admin (o búsqueda por teléfono para quien transfiere). */
+  async listRestaurantCards(
+    userId: string,
+    restaurantId: string,
+    filter: { phone?: unknown; country?: unknown } = {},
+  ) {
+    return withTransaction(this.pool, async (client) => {
+      const phone =
+        filter.phone === undefined
+          ? null
+          : normalizePhone(filter.phone, filter.country);
+      if (phone) await this.transferAgent(client, userId, restaurantId);
+      else await this.owner(client, userId, restaurantId);
+      const rows = (
+        await client.query<{
+          card_id: string;
+          membership_id: string;
+          program_name: string;
+          status: string;
+          joined_at: Date;
+          closed_at: Date | null;
+          is_reenrollment: boolean;
+          previous_cards_count: number;
+          phone: string;
+          stamps: number | null;
+          pending_rewards: number;
+        }>(
+          `SELECT c.id AS card_id,m.id AS membership_id,p.name AS program_name,
+             CASE WHEN m.status='closed' THEN 'closed' ELSE 'active' END AS status,
+             m.joined_at,m.closed_at,m.is_reenrollment,m.previous_cards_count,u.phone,
+             (SELECT y.stamps FROM loyalty_cycles y WHERE y.membership_id=m.id ORDER BY y.number DESC LIMIT 1) AS stamps,
+             (SELECT count(*)::int FROM rewards w WHERE w.membership_id=m.id AND w.status='available') AS pending_rewards
+           FROM loyalty_cards c
+           JOIN memberships m ON m.id=c.membership_id
+           JOIN loyalty_programs p ON p.id=m.program_id
+           JOIN users u ON u.id=m.user_id
+           WHERE p.restaurant_id=$1 AND ($2::text IS NULL OR u.phone=$2)
+           ORDER BY m.joined_at DESC,c.id LIMIT 500`,
+          [restaurantId, phone],
+        )
+      ).rows;
+      return rows.map(({ phone: full, ...row }) => ({
+        ...row,
+        stamps: row.stamps ?? 0,
+        joined_at: row.joined_at.toISOString(),
+        closed_at: row.closed_at?.toISOString() ?? null,
+        phone_masked: maskPhoneGrouped(full),
+      }));
+    });
+  }
+
+  /** Detalle para el admin: teléfono completo, historial y tarjetas anteriores. */
+  async getRestaurantCard(
+    userId: string,
+    restaurantId: string,
+    cardId: string,
+  ) {
+    return withTransaction(this.pool, async (client) => {
+      await this.owner(client, userId, restaurantId);
+      const card = await this.card(client, cardId, restaurantId);
+      const membership = (
+        await client.query<{
+          joined_at: Date;
+          closed_at: Date | null;
+          close_reason: string | null;
+          is_reenrollment: boolean;
+          previous_cards_count: number;
+        }>(
+          'SELECT joined_at,closed_at,close_reason,is_reenrollment,previous_cards_count FROM memberships WHERE id=$1',
+          [card.membership_id],
+        )
+      ).rows[0];
+      if (!membership) throw notFound();
+      const purchases = (
+        await client.query<{
+          id: string;
+          created_at: Date;
+          stamps_earned: number;
+          sale_reference: string | null;
+          location_name: string | null;
+          employee_name: string | null;
+          reversed_at: Date | null;
+        }>(
+          `SELECT pu.id,pu.created_at,pu.stamps_earned,pu.sale_reference,pu.reversed_at,
+             l.name AS location_name,u.full_name AS employee_name
+           FROM purchases pu
+           LEFT JOIN locations l ON l.id=pu.location_id
+           LEFT JOIN restaurant_employees e ON e.id=pu.employee_id
+           LEFT JOIN users u ON u.id=e.user_id
+           WHERE pu.membership_id=$1 ORDER BY pu.created_at DESC LIMIT 200`,
+          [card.membership_id],
+        )
+      ).rows;
+      const rewards = (
+        await client.query<{
+          id: string;
+          description: string;
+          status: string;
+          earned_at: Date;
+          redeemed_at: Date | null;
+        }>(
+          'SELECT id,description,status,earned_at,redeemed_at FROM rewards WHERE membership_id=$1 ORDER BY earned_at DESC',
+          [card.membership_id],
+        )
+      ).rows;
+      const previous = (
+        await client.query<{
+          card_id: string;
+          joined_at: Date;
+          closed_at: Date | null;
+          status: string;
+        }>(
+          `SELECT c.id AS card_id,m.joined_at,m.closed_at,m.status
+           FROM memberships m JOIN loyalty_cards c ON c.membership_id=m.id
+           WHERE m.user_id=$1 AND m.program_id=$2 AND m.id<>$3
+           ORDER BY m.joined_at DESC`,
+          [card.customer_id, card.program_id, card.membership_id],
+        )
+      ).rows;
+      const iso = (value: Date | null) => value?.toISOString() ?? null;
+      return {
+        card_id: card.id,
+        program_name: card.program_name,
+        status: card.membership_status === 'closed' ? 'closed' : 'active',
+        phone: card.customer_phone,
+        phone_masked: card.customer_phone
+          ? maskPhoneGrouped(card.customer_phone)
+          : null,
+        joined_at: membership.joined_at.toISOString(),
+        closed_at: iso(membership.closed_at),
+        close_reason: membership.close_reason,
+        is_reenrollment: membership.is_reenrollment,
+        previous_cards_count: membership.previous_cards_count,
+        purchases: purchases.map((row) => ({
+          ...row,
+          created_at: row.created_at.toISOString(),
+          reversed_at: iso(row.reversed_at),
+        })),
+        rewards: rewards.map((row) => ({
+          ...row,
+          earned_at: row.earned_at.toISOString(),
+          redeemed_at: iso(row.redeemed_at),
+        })),
+        previous_cards: previous.map((row) => ({
+          card_id: row.card_id,
+          status: row.status === 'closed' ? 'closed' : 'active',
+          joined_at: row.joined_at.toISOString(),
+          closed_at: iso(row.closed_at),
+        })),
+      };
+    });
+  }
+
+  /** El dueño concede o retira el permiso de transferir tarjetas a un empleado. */
+  async setEmployeeTransferPermission(
+    userId: string,
+    restaurantId: string,
+    employeeId: string,
+    allowed: boolean,
+  ): Promise<{ id: string; can_transfer_cards: boolean }> {
+    return withTransaction(this.pool, async (client) => {
+      await this.owner(client, userId, restaurantId);
+      const updated = await client.query<{ id: string }>(
+        'UPDATE restaurant_employees SET can_transfer_cards=$3,updated_at=$4 WHERE id=$1 AND restaurant_id=$2 RETURNING id',
+        [employeeId, restaurantId, allowed, this.now()],
+      );
+      if (!updated.rows[0]) throw notFound();
+      await this.audit(client, {
+        actor: userId,
+        restaurant: restaurantId,
+        action: 'EMPLOYEE_TRANSFER_PERMISSION',
+        resource: employeeId,
+        details: { can_transfer_cards: allowed },
+      });
+      return { id: employeeId, can_transfer_cards: allowed };
+    });
+  }
+
   async listCards(principal: CustomerPrincipal): Promise<CardView[]> {
     return withTransaction(this.pool, async (client) => {
       const cards = (
         await client.query<{ id: string }>(
           `SELECT c.id FROM loyalty_cards c JOIN memberships m ON m.id=c.membership_id
-           WHERE m.user_id=$1 ORDER BY c.created_at DESC`,
-          [principal.user_id],
+           WHERE m.user_id=$1 AND ($2::uuid IS NULL OR c.id=$2)
+           ORDER BY c.created_at DESC`,
+          [principal.user_id, principal.card_id],
         )
       ).rows;
       const result: CardView[] = [];
@@ -655,7 +1303,7 @@ export class PgNextRepository {
   ): Promise<CardView> {
     return withTransaction(this.pool, async (client) => {
       const card = await this.card(client, cardId);
-      if (card.customer_id !== principal.user_id) throw notFound();
+      if (!this.owns(principal, card)) throw notFound();
       return this.view(client, card);
     });
   }
@@ -666,7 +1314,7 @@ export class PgNextRepository {
   ): Promise<{ card_id: string; restaurant_id: string; token: string }> {
     return withTransaction(this.pool, async (client) => {
       const card = await this.card(client, cardId);
-      if (card.customer_id !== principal.user_id) throw notFound();
+      if (!this.owns(principal, card)) throw notFound();
       await this.activeCard(card);
       if (!card.qr_token_encrypted) throw conflict('El QR no está disponible.');
       return {
@@ -686,8 +1334,9 @@ export class PgNextRepository {
         await client.query<RewardRow & { customer_id: string }>(
           `SELECT r.id,r.description,r.status,r.accounting_mode,r.earned_at,r.cycle_id,r.stamps_spent,m.user_id AS customer_id
            FROM rewards r JOIN memberships m ON m.id=r.membership_id
-           WHERE r.id=$1 AND m.user_id=$2`,
-          [rewardId, principal.user_id],
+           WHERE r.id=$1 AND m.user_id=$2
+             AND ($3::uuid IS NULL OR m.id=(SELECT membership_id FROM loyalty_cards WHERE id=$3))`,
+          [rewardId, principal.user_id, principal.card_id],
         )
       ).rows[0];
       if (!reward) throw notFound();
@@ -709,8 +1358,9 @@ export class PgNextRepository {
       const reward = (
         await client.query<{ id: string; status: string }>(
           `SELECT r.id,r.status FROM rewards r JOIN memberships m ON m.id=r.membership_id
-           WHERE r.id=$1 AND m.user_id=$2`,
-          [rewardId, principal.user_id],
+           WHERE r.id=$1 AND m.user_id=$2
+             AND ($3::uuid IS NULL OR m.id=(SELECT membership_id FROM loyalty_cards WHERE id=$3))`,
+          [rewardId, principal.user_id, principal.card_id],
         )
       ).rows[0];
       if (!reward) throw notFound();
@@ -1329,7 +1979,7 @@ export class PgNextRepository {
       await this.owner(client, userId, restaurantId);
       const rows = (
         await client.query(
-          `SELECT e.id,e.user_id,e.status,e.phone,e.joined_at,u.full_name,u.email
+          `SELECT e.id,e.user_id,e.status,e.phone,e.joined_at,e.can_transfer_cards,u.full_name,u.email
            FROM restaurant_employees e JOIN users u ON u.id=e.user_id
            WHERE e.restaurant_id=$1 ORDER BY e.created_at`,
           [restaurantId],

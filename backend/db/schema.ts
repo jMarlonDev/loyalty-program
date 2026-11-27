@@ -99,6 +99,8 @@ export const restaurant_employees = pgTable(
     ended_at: timestamp('ended_at', { withTimezone: true }),
     created_at: timestamp('created_at', { withTimezone: true }).notNull(),
     updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
+    // NEXT-006: permiso puntual para transferir tarjetas a otro dispositivo.
+    can_transfer_cards: boolean('can_transfer_cards').notNull().default(false),
   },
   (table) => [
     unique('restaurant_employees_user_restaurant_unique').on(
@@ -159,8 +161,13 @@ export const memberships = pgTable(
     joined_at: timestamp('joined_at', { withTimezone: true }).notNull(),
     closed_at: timestamp('closed_at', { withTimezone: true }),
     benefits_version: integer('benefits_version').notNull().default(0),
+    // NEXT-006: reinscripción tras cerrar tarjetas anteriores del mismo teléfono.
+    is_reenrollment: boolean('is_reenrollment').notNull().default(false),
+    previous_cards_count: integer('previous_cards_count').notNull().default(0),
+    close_reason: varchar('close_reason', { length: 40 }),
   },
   (table) => [
+    check('memberships_previous_cards_check', sql`previous_cards_count >= 0`),
     uniqueIndex('memberships_open_user_program_unique')
       .on(table.user_id, table.program_id)
       .where(sql`status <> 'closed'`),
@@ -235,7 +242,10 @@ export const loyalty_cards = pgTable(
     created_at: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (table) => [
-    check('loyalty_cards_status_check', sql`status IN ('active', 'blocked')`),
+    check(
+      'loyalty_cards_status_check',
+      sql`status IN ('active', 'blocked', 'closed')`,
+    ),
     check('loyalty_cards_version_check', sql`version >= 0`),
     foreignKey({
       name: 'fk_loyalty_cards_membership',
@@ -675,9 +685,20 @@ export const customer_sessions = pgTable(
     revoked_at: timestamp('revoked_at', { withTimezone: true }),
     last_seen_at: timestamp('last_seen_at', { withTimezone: true }).notNull(),
     created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+    // NEXT-006: sesión de dispositivo ligada a una sola tarjeta.
+    card_id: uuid('card_id'),
+    user_agent: varchar('user_agent', { length: 255 }),
   },
   (table) => [
     unique('customer_sessions_token_hash_unique').on(table.token_hash),
+    index('customer_sessions_card_idx').on(table.card_id),
+    foreignKey({
+      name: 'fk_customer_sessions_card',
+      columns: [table.card_id],
+      foreignColumns: [loyalty_cards.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
     index('customer_sessions_customer_idx').on(
       table.customer_id,
       table.expires_at,
@@ -873,5 +894,56 @@ export const customer_event_leases = pgTable(
     })
       .onUpdate('no action')
       .onDelete('no action'),
+  ],
+).enableRLS();
+
+// NEXT-006: transferencia de tarjeta a un dispositivo nuevo, de un solo uso.
+export const card_transfers = pgTable(
+  'card_transfers',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    card_id: uuid('card_id').notNull(),
+    token_hash: text('token_hash').notNull(),
+    created_by: uuid('created_by').notNull(),
+    expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumed_at: timestamp('consumed_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    unique('card_transfers_token_hash_unique').on(table.token_hash),
+    index('card_transfers_card_idx').on(table.card_id),
+    foreignKey({
+      name: 'fk_card_transfers_card',
+      columns: [table.card_id],
+      foreignColumns: [loyalty_cards.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+    foreignKey({
+      name: 'fk_card_transfers_creator',
+      columns: [table.created_by],
+      foreignColumns: [users.id],
+    })
+      .onUpdate('no action')
+      .onDelete('no action'),
+  ],
+).enableRLS();
+
+// NEXT-006: intentos de inscripción para limitar por IP y dispositivo (hash).
+export const enrollment_attempts = pgTable(
+  'enrollment_attempts',
+  {
+    id: uuid('id').primaryKey().notNull(),
+    scope: varchar('scope', { length: 10 }).notNull(),
+    key_hash: text('key_hash').notNull(),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index('enrollment_attempts_lookup_idx').on(
+      table.scope,
+      table.key_hash,
+      table.created_at,
+    ),
+    check('enrollment_attempts_scope_check', sql`scope IN ('ip', 'device')`),
   ],
 ).enableRLS();

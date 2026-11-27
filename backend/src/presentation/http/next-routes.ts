@@ -59,75 +59,175 @@ export function createNextRoutes({
       throw new AppError(403, 'INVALID_ORIGIN', 'Origen no permitido.');
   };
 
-  routes.post('/customer/session', async (context) => {
-    mutationOrigin(context);
-    const body = await json(context.req.raw);
-    requireOnly(body, ['phone', 'country', 'public_code']);
-    const started = await repository.startSession({
-      phone: body.phone,
-      country: body.country,
-    });
-    context.header('x-customer-token', started.token);
-    context.header('x-customer-expires', started.principal.expires_at);
-    let card = null;
-    if (body.public_code !== undefined) {
-      if (
-        typeof body.public_code !== 'string' ||
-        !/^[A-Za-z0-9_-]{1,255}$/.test(body.public_code)
-      )
-        throw new AppError(400, 'INVALID_INPUT', 'Programa inválido.');
-      card = await repository.enroll(started.principal, body.public_code);
-    }
-    return context.json(
-      {
-        data: {
-          authenticated: true,
-          phone_masked: started.principal.phone_masked,
-          expires_at: started.principal.expires_at,
-          card,
-        },
-      },
-      201,
-    );
-  });
-
   routes.get('/customer/session', async (context) => {
     const current = await customer(context);
     return context.json({
       data: {
         authenticated: true,
+        card_id: current.card_id,
         phone_masked: current.phone_masked,
         expires_at: current.expires_at,
       },
     });
   });
 
-  routes.delete('/customer/session', async (context) => {
-    mutationOrigin(context);
+  const publicCode = (value: unknown): string => {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,255}$/.test(value))
+      throw new AppError(400, 'INVALID_INPUT', 'Programa inválido.');
+    return value;
+  };
+  /** Sesión válida del dispositivo o null (sin sesión, revocada o vencida). */
+  const optionalCustomer = async (context: HttpContext) => {
     const token = sessionToken(context);
-    if (token) {
-      const current = await repository.authenticate(token);
-      await repository.endSession(current.session_id);
+    if (!token) return null;
+    try {
+      return await repository.authenticate(token);
+    } catch (error) {
+      if (error instanceof AppError && error.status === 401) return null;
+      throw error;
     }
-    context.header('x-customer-clear', '1');
-    return new Response(null, { status: 204 });
-  });
+  };
+  const issueSession = (
+    context: HttpContext,
+    session: { token: string; expires_at: string },
+  ) => {
+    context.header('x-customer-token', session.token);
+    context.header('x-customer-expires', session.expires_at);
+  };
 
+  // NEXT-006: alta por teléfono. Con sesión del dispositivo devuelve su
+  // tarjeta y nunca crea otra; sin sesión, el teléfono solo sirve para crear.
   routes.post('/customer/enrollments', async (context) => {
     mutationOrigin(context);
-    const current = await customer(context);
     const body = await json(context.req.raw);
-    requireOnly(body, ['public_code']);
-    if (
-      typeof body.public_code !== 'string' ||
-      !/^[A-Za-z0-9_-]{1,255}$/.test(body.public_code)
-    )
-      throw new AppError(400, 'INVALID_INPUT', 'Programa inválido.');
+    requireOnly(body, ['public_code', 'phone', 'country']);
+    const code = publicCode(body.public_code);
+    const current = await optionalCustomer(context);
+    if (current) {
+      const existing = await repository.deviceCard(current, code);
+      return context.json({ data: { existing: true, ...existing } }, 200);
+    }
+    await repository.limitEnrollment({
+      ip: context.req.header('x-loyalty-client-address'),
+      device: context.req.header('x-loyalty-device'),
+    });
+    const enrolled = await repository.enrollByPhone({
+      publicCode: code,
+      phone: body.phone,
+      country: body.country,
+      userAgent: context.req.header('user-agent'),
+    });
+    issueSession(context, enrolled);
     return context.json(
-      { data: await repository.enroll(current, body.public_code) },
+      {
+        data: {
+          existing: false,
+          reenrollment: enrolled.reenrollment,
+          notice: enrolled.reenrollment
+            ? 'Este número ya participó en el programa. Se creó una tarjeta nueva sin sellos.'
+            : null,
+          card: enrolled.card,
+        },
+      },
       201,
     );
   });
+
+  routes.post('/customer/cards/:cardId/close', async (context) => {
+    mutationOrigin(context);
+    const current = await customer(context);
+    const body = await json(context.req.raw);
+    requireOnly(body, ['confirm']);
+    if (body.confirm !== true)
+      throw new AppError(
+        400,
+        'CONFIRMATION_REQUIRED',
+        'Confirma que quieres salir del programa.',
+      );
+    const result = await repository.closeCard(
+      current,
+      requireNextUuid(context.req.param('cardId')),
+    );
+    context.header('x-customer-clear', '1');
+    return context.json({ data: result });
+  });
+
+  routes.post('/customer/transfers/claim', async (context) => {
+    mutationOrigin(context);
+    const body = await json(context.req.raw);
+    requireOnly(body, ['token']);
+    const current = await optionalCustomer(context);
+    const claimed = await repository.claimTransfer({
+      token: requireToken(body.token),
+      currentSessionId: current?.session_id,
+      userAgent: context.req.header('user-agent'),
+    });
+    issueSession(context, claimed);
+    return context.json({ data: { card: claimed.card } }, 201);
+  });
+
+  routes.get('/restaurants/:restaurantId/cards', async (context) => {
+    const actor = await account(context);
+    const phone = context.req.query('phone');
+    return context.json({
+      data: await repository.listRestaurantCards(
+        actor.id,
+        requireNextUuid(context.req.param('restaurantId')),
+        phone === undefined
+          ? {}
+          : { phone, country: context.req.query('country') ?? 'CO' },
+      ),
+    });
+  });
+
+  routes.get('/restaurants/:restaurantId/cards/:cardId', async (context) => {
+    const actor = await account(context);
+    return context.json({
+      data: await repository.getRestaurantCard(
+        actor.id,
+        requireNextUuid(context.req.param('restaurantId')),
+        requireNextUuid(context.req.param('cardId')),
+      ),
+    });
+  });
+
+  routes.post(
+    '/restaurants/:restaurantId/cards/:cardId/transfers',
+    async (context) => {
+      mutationOrigin(context);
+      const actor = await account(context);
+      return context.json(
+        {
+          data: await repository.createTransfer(
+            actor.id,
+            requireNextUuid(context.req.param('restaurantId')),
+            requireNextUuid(context.req.param('cardId')),
+          ),
+        },
+        201,
+      );
+    },
+  );
+
+  routes.patch(
+    '/restaurants/:restaurantId/employees/:targetId/transfer-permission',
+    async (context) => {
+      mutationOrigin(context);
+      const actor = await account(context);
+      const body = await json(context.req.raw);
+      requireOnly(body, ['can_transfer_cards']);
+      if (typeof body.can_transfer_cards !== 'boolean')
+        throw new AppError(400, 'INVALID_INPUT', 'Valor de permiso inválido.');
+      return context.json({
+        data: await repository.setEmployeeTransferPermission(
+          actor.id,
+          requireNextUuid(context.req.param('restaurantId')),
+          requireNextUuid(context.req.param('targetId')),
+          body.can_transfer_cards,
+        ),
+      });
+    },
+  );
 
   routes.get('/customer/cards', async (context) => {
     const current = await customer(context);

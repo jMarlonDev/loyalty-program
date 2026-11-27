@@ -77,6 +77,7 @@ const schemas: Record<string, Schema> = {
   ]),
   CustomerSessionView: object({
     authenticated: { type: 'boolean', const: true },
+    card_id: nullable(uuid),
     expires_at: date,
     phone_masked: string(32),
   }),
@@ -86,7 +87,66 @@ const schemas: Record<string, Schema> = {
     phone_masked: string(32),
     card: nullable(ref('CustomerCard')),
   }),
-  CustomerEnrollmentInput: object({ public_code: publicCode }),
+  CustomerEnrollmentInput: object({ public_code: publicCode, phone, country }, [
+    'public_code',
+  ]),
+  CustomerEnrollmentResult: object(
+    {
+      existing: { type: 'boolean' },
+      same_program: { type: 'boolean' },
+      reenrollment: { type: 'boolean' },
+      notice: nullable(string(255)),
+      card: ref('CustomerCard'),
+    },
+    ['existing', 'card'],
+  ),
+  CardCloseInput: object({ confirm: { type: 'boolean', const: true } }),
+  CardCloseResult: object({ stamps_lost: integer(), rewards_lost: integer() }),
+  TransferClaimInput: object({ token }),
+  TransferClaimResult: object({ card: ref('CustomerCard') }),
+  CardTransfer: object({ token, url: string(2048), expires_at: date }),
+  RestaurantCardSummary: object({
+    card_id: uuid,
+    membership_id: uuid,
+    program_name: string(),
+    status: enumeration('active', 'closed'),
+    joined_at: date,
+    closed_at: nullable(date),
+    is_reenrollment: { type: 'boolean' },
+    previous_cards_count: integer(),
+    phone_masked: string(32),
+    stamps: integer(),
+    pending_rewards: integer(),
+  }),
+  RestaurantCardDetail: object({
+    card_id: uuid,
+    program_name: string(),
+    status: enumeration('active', 'closed'),
+    phone: nullable(string(32)),
+    phone_masked: nullable(string(32)),
+    joined_at: date,
+    closed_at: nullable(date),
+    close_reason: nullable(string(40)),
+    is_reenrollment: { type: 'boolean' },
+    previous_cards_count: integer(),
+    purchases: array(object({ id: uuid })),
+    rewards: array(object({ id: uuid })),
+    previous_cards: array(
+      object({
+        card_id: uuid,
+        status: enumeration('active', 'closed'),
+        joined_at: date,
+        closed_at: nullable(date),
+      }),
+    ),
+  }),
+  TransferPermissionInput: object({
+    can_transfer_cards: { type: 'boolean' },
+  }),
+  TransferPermission: object({
+    id: uuid,
+    can_transfer_cards: { type: 'boolean' },
+  }),
   CustomerCard: object({
     id: uuid,
     membership_id: uuid,
@@ -94,7 +154,7 @@ const schemas: Record<string, Schema> = {
     restaurant_id: uuid,
     restaurant_name: string(),
     program_name: string(),
-    status: enumeration('active', 'blocked'),
+    status: enumeration('active', 'blocked', 'closed'),
     version: integer(),
     balance: integer(),
     target: integer(1),
@@ -270,7 +330,7 @@ interface Operation {
   summary: string;
   input?: string;
   output?: string;
-  auth?: 'public' | 'operator' | 'owner' | 'account';
+  auth?: 'public' | 'device' | 'operator' | 'owner' | 'account';
   status?: number;
   list?: boolean;
   retry?: boolean;
@@ -364,7 +424,11 @@ function operation(options: Operation) {
       'Inscripción existente, sin duplicación ni sello.',
     );
   for (const code of [400, 401, 403, 404, 409, 413, 429, 500, 503]) {
-    if (code === 401 && options.auth === 'public') continue;
+    if (
+      code === 401 &&
+      (options.auth === 'public' || options.auth === 'device')
+    )
+      continue;
     const response = jsonResponse(
       ref('Error'),
       'Error sin efecto comercial no confirmado.',
@@ -387,9 +451,12 @@ function operation(options: Operation) {
     security:
       options.auth === 'public'
         ? []
-        : options.auth
-          ? [{ bearerAuth: [] }, { staffSession: [] }]
-          : [{ customerSession: [] }],
+        : options.auth === 'device'
+          ? // NEXT-006: sin sesión (alta/transferencia) o con la del dispositivo.
+            [{}, { customerSession: [] }]
+          : options.auth
+            ? [{ bearerAuth: [] }, { staffSession: [] }]
+            : [{ customerSession: [] }],
     'x-implementation': 'mounted',
     'x-authorization': options.auth ?? 'customer',
     'x-decision-dependencies': options.decisions ?? [],
@@ -422,18 +489,6 @@ operation({
   existing: true,
 });
 operation({
-  method: 'post',
-  path: '/api/v1/customer/session',
-  id: 'startCustomerSession',
-  summary: 'Identificar el teléfono y emitir la sesión larga del dispositivo',
-  auth: 'public',
-  input: 'CustomerSessionInput',
-  output: 'CustomerSessionCreated',
-  status: 201,
-  setsCookie: true,
-  decisions: ['D-01'],
-});
-operation({
   method: 'get',
   path: '/api/v1/customer/session',
   id: 'customerSession',
@@ -441,23 +496,83 @@ operation({
   output: 'CustomerSessionView',
 });
 operation({
-  method: 'delete',
-  path: '/api/v1/customer/session',
-  id: 'forgetCustomerDevice',
-  summary: 'Revocar este dispositivo sin borrar beneficios',
-  status: 204,
-  setsCookie: true,
-});
-operation({
   method: 'post',
   path: '/api/v1/customer/enrollments',
   id: 'enrollCustomer',
-  summary: 'Crear o recuperar la tarjeta sin sello inicial',
+  summary:
+    'Alta por teléfono (201, emite sesión del dispositivo) o tarjeta ya ligada al dispositivo (200). 409 CARD_ALREADY_ACTIVE sin datos de la tarjeta.',
+  auth: 'device',
   input: 'CustomerEnrollmentInput',
-  output: 'CustomerCard',
+  output: 'CustomerEnrollmentResult',
   status: 201,
   alternate200: true,
-  decisions: ['D-05'],
+  setsCookie: true,
+  decisions: ['D-01', 'D-05'],
+});
+operation({
+  method: 'post',
+  path: '/api/v1/customer/cards/{cardId}/close',
+  id: 'closeCustomerCard',
+  summary:
+    'Salir del programa: tarjeta CERRADA, sellos y premios pendientes perdidos, sesión revocada; el historial se conserva',
+  input: 'CardCloseInput',
+  output: 'CardCloseResult',
+  setsCookie: true,
+  decisions: ['D-01'],
+});
+operation({
+  method: 'post',
+  path: '/api/v1/customer/transfers/claim',
+  id: 'claimCardTransfer',
+  summary:
+    'Consumir el QR de transferencia (un uso, 10 min): revoca los dispositivos anteriores',
+  auth: 'device',
+  input: 'TransferClaimInput',
+  output: 'TransferClaimResult',
+  status: 201,
+  setsCookie: true,
+  decisions: ['D-01'],
+});
+operation({
+  method: 'get',
+  path: '/api/v1/restaurants/{restaurantId}/cards',
+  id: 'restaurantCards',
+  summary:
+    'Tarjetas del restaurante con estado y reinscripción; teléfono enmascarado. Con ?phone también para empleados con permiso de transferencia',
+  auth: 'owner',
+  output: 'RestaurantCardSummary',
+  list: true,
+  decisions: ['D-01'],
+});
+operation({
+  method: 'get',
+  path: '/api/v1/restaurants/{restaurantId}/cards/{cardId}',
+  id: 'restaurantCard',
+  summary: 'Detalle con teléfono completo, historial y tarjetas anteriores',
+  auth: 'owner',
+  output: 'RestaurantCardDetail',
+  decisions: ['D-01'],
+});
+operation({
+  method: 'post',
+  path: '/api/v1/restaurants/{restaurantId}/cards/{cardId}/transfers',
+  id: 'createCardTransfer',
+  summary:
+    'Generar QR de transferencia a un nuevo dispositivo tras verificar a la persona en el local',
+  auth: 'owner',
+  output: 'CardTransfer',
+  status: 201,
+  decisions: ['D-01'],
+});
+operation({
+  method: 'patch',
+  path: '/api/v1/restaurants/{restaurantId}/employees/{targetId}/transfer-permission',
+  id: 'setTransferPermission',
+  summary: 'Conceder o retirar a un empleado el permiso de transferir tarjetas',
+  auth: 'owner',
+  input: 'TransferPermissionInput',
+  output: 'TransferPermission',
+  decisions: ['D-01', 'D-02'],
 });
 operation({
   method: 'get',

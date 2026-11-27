@@ -151,6 +151,8 @@ function invalid() {
 
 export interface CustomerPrincipal {
   session_id: string;
+  /** NEXT-006: tarjeta a la que está ligada la sesión del dispositivo; null en sesiones heredadas. */
+  card_id: string | null;
   customer_id: string;
   user_id: string;
   phone: string;
@@ -196,4 +198,15 @@ export interface CardView {
     card_message: string | null;
     public_code: string;
   };
+}
+
+/** NEXT-006: «+57 300 *** 4567» para listas; el número completo solo en el detalle. */
+export function maskPhoneGrouped(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  const dial = Object.values(dialCodes)
+    .filter((code) => digits.startsWith(code))
+    .sort((a, b) => b.length - a.length)[0];
+  const national = dial ? digits.slice(dial.length) : digits;
+  if (national.length < 7) return maskPhone(phone);
+  return `+${dial ?? ''} ${national.slice(0, 3)} *** ${national.slice(-4)}`;
 }
