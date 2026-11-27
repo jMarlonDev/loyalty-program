@@ -112,7 +112,7 @@ export function AuthPage() {
       : next.startsWith('/scan')
         ? 'Entra con la cuenta de tu equipo para registrar la compra del cliente.'
         : destination === '/app?onboarding=business'
-          ? 'Crea tu cuenta y registra tu restaurante para administrarlo. Invita a tu equipo desde la sección Equipo.'
+          ? 'Crea tu cuenta y registra tu restaurante para administrarlo. Invita a tu equipo desde las secciones Sucursales y Empleados.'
           : 'Entra para continuar en tu restaurante o consultar tus tarjetas, según los permisos de tu cuenta.';
   return (
     <div className="auth-page">

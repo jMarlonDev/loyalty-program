@@ -16,11 +16,11 @@ describe('TESTDB-001: migraciones PostgreSQL reales', () => {
     await database?.cleanup();
   });
 
-  it('AC-002/003: crea las 27 tablas y reaplica sin duplicar historial ni datos', async () => {
+  it('AC-002/003: crea las 29 tablas y reaplica sin duplicar historial ni datos', async () => {
     const tables = await database.pool.query(
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
     );
-    expect(tables.rowCount).toBe(27);
+    expect(tables.rowCount).toBe(29);
     const id = randomUUID();
     await database.pool.query(
       "INSERT INTO users (id, full_name, status, created_at, updated_at) VALUES ($1, 'Fixture', 'active', now(), now())",
@@ -30,7 +30,7 @@ describe('TESTDB-001: migraciones PostgreSQL reales', () => {
     const history = await database.pool.query(
       'SELECT * FROM drizzle.__drizzle_migrations',
     );
-    expect(history.rowCount).toBe(9);
+    expect(history.rowCount).toBe(10);
     expect(
       (await database.pool.query('SELECT id FROM users WHERE id = $1', [id]))
         .rowCount,

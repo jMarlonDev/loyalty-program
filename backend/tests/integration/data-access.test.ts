@@ -16,7 +16,7 @@ describe('DB-004 acceso directo sin políticas', () => {
         "SELECT relname,relrowsecurity FROM pg_class JOIN pg_namespace n ON n.oid=relnamespace WHERE n.nspname='public' AND relkind='r'",
       )
     ).rows;
-    expect(rows).toHaveLength(27);
+    expect(rows).toHaveLength(29);
     expect(rows.filter((row) => !row.relrowsecurity)).toEqual([]);
   });
   it('rol ordinario no lee perfiles ni los escribe; propietario sí', async () => {

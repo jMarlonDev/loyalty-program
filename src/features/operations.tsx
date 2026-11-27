@@ -14,6 +14,16 @@ import {
 import { useAppOrigin } from '../lib/public-config';
 import type { ScanResult } from '../lib/types';
 
+const lastLocationKey = 'loyalty:last-location';
+
+function readLastLocation() {
+  try {
+    return localStorage.getItem(lastLocationKey) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 export function OperationsPanel({
   restaurantId,
   initialToken,
@@ -43,6 +53,7 @@ export function OperationsPanel({
   const [confirm, setConfirm] = useState(false);
   const [message, setMessage] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
+  const [chosenLocation, setChosenLocation] = useState(readLastLocation);
   const autoLookup = useRef(false);
   const lookupRef = useRef<(value: string, kind: ScanPurpose) => Promise<void>>(
     async () => {},
@@ -93,9 +104,18 @@ export function OperationsPanel({
   }
   lookupRef.current = lookupValue;
 
+  const locations = result?.locations ?? [];
+  const locationId =
+    locations.length === 1
+      ? locations[0].id
+      : locations.some((item) => item.id === chosenLocation)
+        ? chosenLocation
+        : '';
+
   async function purchase(event: FormEvent) {
     event.preventDefault();
     if (!result || !reference.trim() || purchaseAction.isPending) return;
+    if (locations.length > 1 && !locationId) return;
     setMessage('');
     try {
       const next = await purchaseAction.mutateAsync({
@@ -104,11 +124,13 @@ export function OperationsPanel({
           restaurant_id: restaurantId,
           token,
           sale_reference: reference.trim(),
+          ...(locationId ? { location_id: locationId } : {}),
         },
       });
       setResult({
         card: next.card,
         phone_masked: result.phone_masked,
+        locations: result.locations,
         reward: (() => {
           const available = next.card.rewards.find(
             (item) => item.status === 'available',
@@ -144,11 +166,17 @@ export function OperationsPanel({
     try {
       const next = await redeemAction.mutateAsync({
         path: '/operator/redemptions',
-        body: { restaurant_id: restaurantId, token, confirm: true },
+        body: {
+          restaurant_id: restaurantId,
+          token,
+          confirm: true,
+          ...(locationId ? { location_id: locationId } : {}),
+        },
       });
       setResult({
         card: next.card,
         phone_masked: result.phone_masked,
+        locations: result.locations,
         reward: null,
         allowed_actions: ['purchase'],
       });
@@ -329,6 +357,37 @@ export function OperationsPanel({
                     <p>El backend fija la cantidad; no se puede editar.</p>
                   </div>
                 </div>
+                {locations.length === 1 && <p>Sucursal: {locations[0].name}</p>}
+                {locations.length > 1 && (
+                  <Field label="Sucursal">
+                    {(id) => (
+                      <select
+                        id={id}
+                        className="input"
+                        value={locationId}
+                        required
+                        onChange={(event) => {
+                          setChosenLocation(event.target.value);
+                          try {
+                            localStorage.setItem(
+                              lastLocationKey,
+                              event.target.value,
+                            );
+                          } catch {}
+                        }}
+                      >
+                        <option value="" disabled>
+                          Elige la sucursal
+                        </option>
+                        {locations.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </Field>
+                )}
                 <Field
                   label="Referencia única de venta"
                   hint="Número de recibo o factura. No se puede repetir en este restaurante."
@@ -344,7 +403,13 @@ export function OperationsPanel({
                     />
                   )}
                 </Field>
-                <Button disabled={purchaseAction.isPending} type="submit">
+                <Button
+                  disabled={
+                    purchaseAction.isPending ||
+                    (locations.length > 1 && !locationId)
+                  }
+                  type="submit"
+                >
                   {purchaseAction.isPending
                     ? 'Registrando…'
                     : 'Registrar compra · +1 sello'}

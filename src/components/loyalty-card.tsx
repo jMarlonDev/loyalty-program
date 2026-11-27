@@ -127,7 +127,9 @@ export function ShareQr({
   value,
   title = 'Comparte tu programa',
   description = 'Tus clientes escanean el QR y se inscriben desde su celular.',
+  size = 160,
 }: {
+  size?: number;
   value: string;
   title?: string;
   description?: string;
@@ -162,7 +164,7 @@ export function ShareQr({
       <div ref={container} className="share-qr-image">
         <QRCodeSVG
           value={value}
-          size={160}
+          size={size}
           marginSize={4}
           level="M"
           title={title}

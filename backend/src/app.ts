@@ -6,12 +6,14 @@ import {
 import { createLoyaltyService } from './application/loyalty.js';
 import { createProgramService } from './application/programs.js';
 import { createStaffService } from './application/staff.js';
+import { PgBranchRepository } from './infrastructure/branch-repository.js';
 import { PgLoyaltyRepository } from './infrastructure/loyalty-repository.js';
 import { PgNextRepository } from './infrastructure/next-repository.js';
 import { PgProfileRepository } from './infrastructure/profile-repository.js';
 import { PgProgramRepository } from './infrastructure/programs-repository.js';
 import { PgStaffRepository } from './infrastructure/staff-repository.js';
 import { createBaseApp } from './presentation/http/base-app.js';
+import { createBranchRoutes } from './presentation/http/branch-routes.js';
 import { mountedOpenApiDocument } from './presentation/http/combined-openapi.js';
 import { createIdentityRoutes } from './presentation/http/identity.js';
 import { createLoyaltyRoutes } from './presentation/http/loyalty.js';
@@ -59,6 +61,19 @@ export function createApp(dependencies: AppDependencies) {
       identityService,
       repository: new PgNextRepository(dependencies.pool, {
         ...repositoryOptions,
+        ...(dependencies.publicOrigin
+          ? { publicOrigin: dependencies.publicOrigin }
+          : {}),
+      }),
+      origin: dependencies.publicOrigin ?? '',
+    }),
+  );
+  app.route(
+    '/api/v1',
+    createBranchRoutes({
+      identityService,
+      repository: new PgBranchRepository(dependencies.pool, {
+        ...(dependencies.now ? { now: dependencies.now } : {}),
         ...(dependencies.publicOrigin
           ? { publicOrigin: dependencies.publicOrigin }
           : {}),
